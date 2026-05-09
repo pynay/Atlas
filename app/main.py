@@ -4,7 +4,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from app.db import engine, init_db
-from app.routes import conversations, videos
+from app.routes import conversations, messages, videos
 from app.services.ingestion import run_polling_loop
 
 
@@ -25,6 +25,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="Cliff", lifespan=lifespan)
 app.include_router(videos.router)
 app.include_router(conversations.router)
+app.include_router(messages.router)
 
 
 @app.get("/health")
