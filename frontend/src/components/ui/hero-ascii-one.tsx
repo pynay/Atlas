@@ -1,116 +1,92 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 export default function AnimationPage() {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [visible, setVisible] = useState(false);
+
   useEffect(() => {
-    const embedScript = document.createElement('script');
-    embedScript.type = 'text/javascript';
-    embedScript.textContent = `
-      !function(){
-        if(!window.UnicornStudio){
-          window.UnicornStudio={isInitialized:!1};
-          var i=document.createElement("script");
-          i.src="https://cdn.jsdelivr.net/gh/hiunicornstudio/unicornstudio.js@v1.4.33/dist/unicornStudio.umd.js";
-          i.onload=function(){
-            window.UnicornStudio.isInitialized||(UnicornStudio.init(),window.UnicornStudio.isInitialized=!0)
-          };
-          (document.head || document.body).appendChild(i)
-        }
-      }();
-    `;
-    document.head.appendChild(embedScript);
-
-    const style = document.createElement('style');
-    style.textContent = `
-      [data-us-project] {
-        position: relative !important;
-        overflow: hidden !important;
+    // Layout already loaded the script globally. If it's ready, reinit immediately.
+    // Otherwise wait for it to finish loading (it fires UnicornStudio.init itself).
+    const tryInit = () => {
+      if (typeof window === 'undefined') return;
+      const US = (window as unknown as { UnicornStudio?: { isInitialized?: boolean; init?: () => void; reinit?: () => void } }).UnicornStudio;
+      if (US?.isInitialized && US.reinit) {
+        US.reinit();
+      } else if (US && !US.isInitialized && US.init) {
+        US.init();
+        US.isInitialized = true;
       }
+      // Fade in once we've triggered init
+      setTimeout(() => setVisible(true), 300);
+    };
 
-      [data-us-project] canvas {
-        clip-path: inset(0 0 10% 0) !important;
-      }
+    // Give the layout script a moment if it hasn't resolved yet
+    if ((window as unknown as { UnicornStudio?: { isInitialized?: boolean } }).UnicornStudio?.isInitialized) {
+      tryInit();
+    } else {
+      const t = setTimeout(tryInit, 800);
+      return () => clearTimeout(t);
+    }
+  }, []);
 
-      [data-us-project] * {
-        pointer-events: none !important;
-      }
-      [data-us-project] a[href*="unicorn"],
-      [data-us-project] button[title*="unicorn"],
-      [data-us-project] div[title*="Made with"],
-      [data-us-project] .unicorn-brand,
-      [data-us-project] [class*="brand"],
-      [data-us-project] [class*="credit"],
-      [data-us-project] [class*="watermark"] {
-        display: none !important;
-        visibility: hidden !important;
-        opacity: 0 !important;
-        position: absolute !important;
-        left: -9999px !important;
-        top: -9999px !important;
-      }
-    `;
-    document.head.appendChild(style);
+  useEffect(() => {
+    const kill = (el: Element) => {
+      (el as HTMLElement).style.cssText = 'display:none!important;opacity:0!important;pointer-events:none!important;';
+      try { el.remove(); } catch (_) {}
+    };
 
-    const hideBranding = () => {
-      const selectors = [
-        '[data-us-project]',
-        '[data-us-project="OMzqyUv6M3kSnv0JeAtC"]',
-        '.unicorn-studio-container',
-        'canvas[aria-label*="Unicorn"]'
-      ];
+    const isWatermark = (el: Element) => {
+      const text = (el.textContent || '').toLowerCase();
+      const href = (el.getAttribute('href') || '').toLowerCase();
+      const src = (el.getAttribute('src') || '').toLowerCase();
+      return (
+        text.includes('unicorn') ||
+        text.includes('made with') ||
+        href.includes('unicorn') ||
+        src.includes('unicorn')
+      );
+    };
 
-      selectors.forEach(selector => {
-        const containers = document.querySelectorAll(selector);
-        containers.forEach(container => {
-          const allElements = container.querySelectorAll('*');
-          allElements.forEach(el => {
-            const text = (el.textContent || '').toLowerCase();
-            const title = (el.getAttribute('title') || '').toLowerCase();
-            const href = (el.getAttribute('href') || '').toLowerCase();
-
-            if (
-              text.includes('made with') ||
-              text.includes('unicorn') ||
-              title.includes('made with') ||
-              title.includes('unicorn') ||
-              href.includes('unicorn.studio')
-            ) {
-              (el as HTMLElement).style.display = 'none';
-              (el as HTMLElement).style.visibility = 'hidden';
-              (el as HTMLElement).style.opacity = '0';
-              (el as HTMLElement).style.pointerEvents = 'none';
-              (el as HTMLElement).style.position = 'absolute';
-              (el as HTMLElement).style.left = '-9999px';
-              (el as HTMLElement).style.top = '-9999px';
-              try { el.remove(); } catch(e) {}
-            }
-          });
-        });
+    // Sweep the whole document — watermark lives outside [data-us-project]
+    const sweep = () => {
+      document.querySelectorAll('a, button, [class*="watermark"], [class*="brand"], [class*="badge"]').forEach(el => {
+        if (isWatermark(el)) kill(el);
       });
     };
 
-    hideBranding();
-    const interval = setInterval(hideBranding, 50);
+    sweep();
 
-    setTimeout(hideBranding, 500);
-    setTimeout(hideBranding, 1000);
-    setTimeout(hideBranding, 2000);
-    setTimeout(hideBranding, 5000);
-    setTimeout(hideBranding, 10000);
+    // MutationObserver catches it the instant it's injected
+    const observer = new MutationObserver(mutations => {
+      for (const m of mutations) {
+        m.addedNodes.forEach(node => {
+          if (node instanceof Element) {
+            if (isWatermark(node)) { kill(node); return; }
+            node.querySelectorAll('*').forEach(child => { if (isWatermark(child)) kill(child); });
+          }
+        });
+      }
+    });
 
-    return () => {
-      clearInterval(interval);
-      try { document.head.removeChild(embedScript); } catch(e) {}
-      try { document.head.removeChild(style); } catch(e) {}
-    };
+    observer.observe(document.body, { childList: true, subtree: true });
+    const id = setInterval(sweep, 500);
+    setTimeout(() => clearInterval(id), 15000);
+
+    return () => { observer.disconnect(); clearInterval(id); };
   }, []);
 
   return (
-    <div className="absolute inset-0 w-full h-full hidden lg:block">
+    <div
+      ref={containerRef}
+      className="absolute inset-0 w-full h-full hidden lg:block transition-opacity duration-700"
+      style={{ opacity: visible ? 1 : 0 }}
+    >
       <div
         data-us-project="OMzqyUv6M3kSnv0JeAtC"
         style={{ width: '100%', height: '100%', minHeight: '100vh' }}
+        suppressHydrationWarning
       />
     </div>
   );

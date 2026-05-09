@@ -11,7 +11,7 @@ interface Props {
 
 export default function MessageContent({ text }: Props) {
   return (
-    <div className="markdown-body">
+    <div className="markdown-body font-mono">
       <ReactMarkdown
         remarkPlugins={[remarkGfm, remarkMath]}
         rehypePlugins={[rehypeKatex]}

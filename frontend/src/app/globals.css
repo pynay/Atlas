@@ -129,6 +129,19 @@
   }
 }
 
+/* Hide UnicornStudio watermark */
+[data-us-project] a,
+[data-us-project] button,
+[data-us-project] [class*="watermark"],
+[data-us-project] [class*="brand"],
+[data-us-project] [class*="credit"],
+[data-us-project] [href*="unicorn"],
+a[href*="unicorn.studio"] {
+  display: none !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
+}
+
 /* Force KaTeX to use the UI mono font instead of Computer Modern */
 .markdown-body .katex {
   font-size: 1em;

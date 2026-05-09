@@ -67,7 +67,7 @@ function MessageBubble({ msg, onClipClick }: { msg: LiveMessage; onClipClick?: (
         className={`max-w-[85%] px-4 py-3 text-xs leading-relaxed ${
           isUser
             ? 'border border-white/30 text-white/80 bg-white/5 font-mono'
-            : 'border border-white/10 text-white/70 bg-transparent font-sans'
+            : 'border border-white/10 text-white/70 bg-transparent font-mono'
         }`}
       >
         {msg.content ? (
