@@ -3,6 +3,8 @@ from typing import AsyncIterator, Tuple
 OPEN = "<svg"
 CLOSE = "</svg>"
 HOLDBACK = max(len(OPEN), len(CLOSE))  # 6
+# Characters that may legitimately follow "<svg" in a real opening tag.
+_OPEN_DELIMS = {">", "/", " ", "\t", "\n", "\r"}
 
 
 async def stream_with_svg_buffer(
@@ -27,6 +29,9 @@ async def stream_with_svg_buffer(
         # Process as long as we can make progress.
         while True:
             if in_svg:
+                # Note: we look for the exact byte sequence "</svg>". A close tag with
+                # internal whitespace like "</svg >" or "</svg\n>" will NOT match — but
+                # Claude's system prompt (Task 10) commits to emitting only canonical tags.
                 idx = svg_buf.find(CLOSE)
                 if idx == -1:
                     break
@@ -37,11 +42,42 @@ async def stream_with_svg_buffer(
                 in_svg = False
                 continue
 
-            idx = buf.find(OPEN)
-            if idx != -1:
-                if idx > 0:
-                    yield ("text", buf[:idx])
-                svg_buf = buf[idx:]
+            # Find a real "<svg" opener. We can't fully disambiguate prose mentions of
+            # "<svg>" from actual SVG elements without semantic context; the system prompt
+            # (Task 10) instructs Claude not to mention "<svg>" in prose. As a syntactic
+            # guard we also require the char after "<svg" to be a tag delimiter, so that
+            # things like "<svgfoo>" don't trip the buffer.
+            search_from = 0
+            opener_idx = -1
+            need_more = False
+            while True:
+                idx = buf.find(OPEN, search_from)
+                if idx == -1:
+                    break
+                next_pos = idx + len(OPEN)
+                if next_pos >= len(buf):
+                    # Match sits at the end of buf — wait for the next chunk to see
+                    # the delimiter char before deciding.
+                    need_more = True
+                    opener_idx = idx
+                    break
+                if buf[next_pos] in _OPEN_DELIMS:
+                    opener_idx = idx
+                    break
+                # False match (e.g. "<svgfoo"); keep scanning.
+                search_from = idx + 1
+
+            if need_more:
+                # Emit text up to (but not including) the tentative opener; hold the rest.
+                if opener_idx > 0:
+                    yield ("text", buf[:opener_idx])
+                    buf = buf[opener_idx:]
+                break
+
+            if opener_idx != -1:
+                if opener_idx > 0:
+                    yield ("text", buf[:opener_idx])
+                svg_buf = buf[opener_idx:]
                 buf = ""
                 in_svg = True
                 continue

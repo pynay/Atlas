@@ -17,10 +17,9 @@ async def _collect(stream):
 @pytest.mark.asyncio
 async def test_plain_text_passes_through():
     out = await _collect(stream_with_svg_buffer(_aiter(["Hello", " world"])))
-    kinds = [k for k, _ in out]
     text = "".join(v for k, v in out if k == "text")
-    assert kinds == ["text", "text"] or "".join(text) == "Hello world"
     assert text == "Hello world"
+    assert all(k == "text" for k, _ in out)
 
 
 @pytest.mark.asyncio
@@ -79,3 +78,50 @@ async def test_text_before_svg_emitted_before_svg():
     # intro text comes before svg event
     types_in_order = [k for k, _ in out]
     assert types_in_order.index("text") < types_in_order.index("svg")
+
+
+@pytest.mark.asyncio
+async def test_svg_lookalike_in_prose_is_not_treated_as_svg():
+    # `<svgfoo>` is not a real svg opener — should be emitted as text.
+    chunks = ["the <svgfoo> element"]
+    out = await _collect(stream_with_svg_buffer(_aiter(chunks)))
+    text_combined = "".join(v for k, v in out if k == "text")
+    svgs = [v for k, v in out if k == "svg"]
+    assert svgs == []
+    assert text_combined == "the <svgfoo> element"
+
+
+@pytest.mark.asyncio
+async def test_multiple_svgs_in_one_stream():
+    chunks = [
+        'a <svg viewBox="0 0 1 1"><rect/></svg> b ',
+        '<svg viewBox="0 0 2 2"><circle/></svg> c',
+    ]
+    out = await _collect(stream_with_svg_buffer(_aiter(chunks)))
+    svgs = [v for k, v in out if k == "svg"]
+    assert len(svgs) == 2
+    text_combined = "".join(v for k, v in out if k == "text")
+    assert "a " in text_combined
+    assert " b " in text_combined
+    assert " c" in text_combined
+
+
+@pytest.mark.asyncio
+async def test_empty_stream():
+    out = await _collect(stream_with_svg_buffer(_aiter([])))
+    assert out == []
+
+
+@pytest.mark.asyncio
+async def test_character_by_character_drip():
+    chunks = list('Hi <svg viewBox="0 0 1 1"><rect/></svg> done')
+    out = await _collect(stream_with_svg_buffer(_aiter(chunks)))
+    svgs = [v for k, v in out if k == "svg"]
+    assert len(svgs) == 1
+    assert svgs[0].startswith("<svg")
+    assert svgs[0].endswith("</svg>")
+    text_combined = "".join(v for k, v in out if k == "text")
+    assert "<svg" not in text_combined
+    assert "</svg>" not in text_combined
+    assert "Hi " in text_combined
+    assert "done" in text_combined
