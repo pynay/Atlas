@@ -1,8 +1,22 @@
 'use client';
 
+'use client';
+
 import { useEffect, useState } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import { getVideo, createConversation, type VideoResponse } from '@/lib/api';
+
+const TAGLINES = [
+  'Atlas is holding up your education.',
+  'Mapping every moment of your video.',
+  'Turning lectures into conversations.',
+  'Building your personal knowledge base.',
+  'Indexing so you never miss a detail.',
+  'Your AI study partner is getting ready.',
+  'Grounding every answer in your video.',
+  'Knowledge, timestamped and searchable.',
+  'Atlas never drops the world.',
+];
 
 const STATUS_LABEL: Record<string, string> = {
   pending: 'QUEUED',
@@ -18,6 +32,19 @@ export default function VideoLoadingPage() {
 
   const [video, setVideo] = useState<VideoResponse | null>(null);
   const [error, setError] = useState('');
+  const [taglineIdx, setTaglineIdx] = useState(0);
+  const [taglineFade, setTaglineFade] = useState(true);
+
+  useEffect(() => {
+    const id = setInterval(() => {
+      setTaglineFade(false);
+      setTimeout(() => {
+        setTaglineIdx(i => (i + 1) % TAGLINES.length);
+        setTaglineFade(true);
+      }, 400);
+    }, 3000);
+    return () => clearInterval(id);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -70,6 +97,28 @@ export default function VideoLoadingPage() {
 
       {/* Center content */}
       <div className="flex flex-col items-center gap-8 px-8 text-center">
+
+        {/* Thumbnail */}
+        {video?.source_url && (() => {
+          try {
+            const url = new URL(video.source_url);
+            const ytId = url.hostname === 'youtu.be'
+              ? url.pathname.slice(1)
+              : url.searchParams.get('v');
+            if (!ytId) return null;
+            return (
+              <div className="relative w-64 aspect-video border border-white/10 overflow-hidden">
+                <img
+                  src={`https://img.youtube.com/vi/${ytId}/hqdefault.jpg`}
+                  alt="Video thumbnail"
+                  className="w-full h-full object-cover opacity-60"
+                />
+                <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent" />
+              </div>
+            );
+          } catch { return null; }
+        })()}
+
         {/* Animated globe */}
         {!error && (
           <div className="relative w-32 h-32">
@@ -140,9 +189,12 @@ export default function VideoLoadingPage() {
               )}
             </div>
 
-            <div className="flex flex-col items-center gap-1">
-              <p className="text-white/30 font-mono text-[10px]">
-                Atlas is indexing your video with multimodal AI.
+            <div className="flex flex-col items-center gap-2">
+              <p
+                className="font-mono text-sm text-white/60 text-center transition-opacity duration-400"
+                style={{ opacity: taglineFade ? 1 : 0 }}
+              >
+                {TAGLINES[taglineIdx]}
               </p>
               <p className="text-white/20 font-mono text-[10px]">
                 This usually takes 1–3 minutes.

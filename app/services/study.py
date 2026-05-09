@@ -2,26 +2,18 @@ import json
 import re
 from dataclasses import dataclass
 
+import anthropic
+
 from app.config import get_settings
 from app.services.twelvelabs import TwelveLabsClient
 
-NOTES_PROMPT = """Generate concise study notes covering the main concepts taught in this video.
-Output as well-formatted markdown:
-- Use ## for major topics, ### for subtopics
-- Use bullet points for key facts
-- Bold important terms (e.g. **alkane**)
-- Include any equations or formulas inline
-
-Keep it focused — main ideas only. Output the markdown directly with no preamble."""
-
-FLASHCARDS_PROMPT = """Generate 8 to 12 study flashcards covering the main concepts in this video.
-Each flashcard tests recall of a key term, definition, fact, or relationship.
-
-Output ONLY a JSON array — no markdown code fence, no preamble, no commentary.
-Format:
-[{"question": "...", "answer": "..."}]
-
-Make questions specific. Keep answers concise (1-3 sentences)."""
+# Broad queries to harvest transcription clips across the whole video
+_HARVEST_QUERIES = [
+    "introduction explain definition",
+    "example formula equation",
+    "key concept important",
+    "conclusion summary result",
+]
 
 
 @dataclass(frozen=True)
@@ -30,32 +22,104 @@ class Flashcard:
     answer: str
 
 
-async def generate_notes(twelvelabs_video_id: str) -> str:
+async def _collect_transcript(twelvelabs_video_id: str) -> str:
+    """Gather transcription clips from broad searches, return sorted deduped text."""
     settings = get_settings()
-    async with TwelveLabsClient(
-        api_key=settings.twelvelabs_api_key,
-        index_id=settings.twelvelabs_index_id,
+    seen: set[tuple[float, float]] = set()
+    clips: list[tuple[float, str]] = []
+
+    import httpx
+    async with httpx.AsyncClient(
         base_url=settings.twelvelabs_base_url,
-    ) as c:
-        return (await c.analyze(twelvelabs_video_id, NOTES_PROMPT)).strip()
+        headers={"x-api-key": settings.twelvelabs_api_key},
+        timeout=30.0,
+    ) as client:
+        for query in _HARVEST_QUERIES:
+            r = await client.post(
+                "/search",
+                files=[
+                    ("index_id", (None, settings.twelvelabs_index_id)),
+                    ("query_text", (None, query)),
+                    ("search_options", (None, "transcription")),
+                    ("page_limit", (None, "50")),
+                ],
+            )
+            if r.status_code >= 400:
+                continue
+            for d in r.json().get("data", []):
+                if d.get("video_id") != twelvelabs_video_id:
+                    continue
+                transcript = d.get("transcription") or ""
+                if not transcript:
+                    continue
+                key = (round(float(d.get("start", 0)), 1), round(float(d.get("end", 0)), 1))
+                if key not in seen:
+                    seen.add(key)
+                    clips.append((float(d.get("start", 0)), f"[{d['start']:.0f}s] {transcript}"))
+
+    clips.sort(key=lambda x: x[0])
+    return "\n".join(text for _, text in clips)
+
+
+async def generate_notes(twelvelabs_video_id: str) -> str:
+    transcript = await _collect_transcript(twelvelabs_video_id)
+    if not transcript:
+        return "_No transcript clips could be retrieved for this video._"
+
+    settings = get_settings()
+    client = anthropic.AsyncAnthropic(api_key=settings.anthropic_api_key)
+    msg = await client.messages.create(
+        model=settings.claude_model,
+        max_tokens=4096,
+        system=(
+            "You are an expert study assistant. The user provides timestamped transcript clips "
+            "from an educational video. Generate thorough, detailed study notes in markdown.\n\n"
+            "Structure:\n"
+            "- Start with a # Title summarising the video topic\n"
+            "- Use ## for major topics, ### for subtopics\n"
+            "- Under each section: explain the concept clearly in 2-4 sentences, then bullet key facts\n"
+            "- **Bold** every important term on first use and give its definition\n"
+            "- Use $LaTeX$ inline for all symbols and equations, $$...$$ for display equations\n"
+            "- Include worked examples where relevant\n"
+            "- End with a ## Key Takeaways section summarising the 4-6 most important points\n\n"
+            "Be thorough — this should be a complete reference a student can study from."
+        ),
+        messages=[{"role": "user", "content": f"Transcript clips:\n\n{transcript}"}],
+    )
+    return msg.content[0].text  # type: ignore[index]
 
 
 async def generate_flashcards(twelvelabs_video_id: str) -> list[Flashcard]:
+    transcript = await _collect_transcript(twelvelabs_video_id)
+    if not transcript:
+        return []
+
     settings = get_settings()
-    async with TwelveLabsClient(
-        api_key=settings.twelvelabs_api_key,
-        index_id=settings.twelvelabs_index_id,
-        base_url=settings.twelvelabs_base_url,
-    ) as c:
-        raw = await c.analyze(twelvelabs_video_id, FLASHCARDS_PROMPT)
+    client = anthropic.AsyncAnthropic(api_key=settings.anthropic_api_key)
+    msg = await client.messages.create(
+        model=settings.claude_model,
+        max_tokens=8000,
+        system=(
+            "You are a study assistant. The user provides timestamped transcript clips "
+            "from a video. Generate 8-12 flashcards covering the key concepts.\n\n"
+            "For each card:\n"
+            "- question: specific and testable — a term, formula, 'why', 'how', or 'what is the difference' question\n"
+            "- answer: 3-5 sentences minimum. Structure it as: "
+            "(1) clear definition or direct answer, "
+            "(2) explanation of the underlying reason or mechanism, "
+            "(3) a concrete example, analogy, or formula that makes it tangible. "
+            "Write as if explaining to a student who needs to truly understand, not just memorize. "
+            "Never give a one-liner answer.\n\n"
+            "Output ONLY a JSON array — no markdown fence, no preamble.\n"
+            'Format: [{"question": "...", "answer": "..."}]'
+        ),
+        messages=[{"role": "user", "content": f"Transcript clips:\n\n{transcript}"}],
+    )
+    raw = msg.content[0].text  # type: ignore[index]
     return parse_flashcards(raw)
 
 
 def parse_flashcards(raw: str) -> list[Flashcard]:
-    """Extract a JSON array of {question, answer} from Pegasus output.
-
-    Tolerates leading/trailing prose, markdown code fences, and minor key variants.
-    """
     text = raw.strip()
     fence = re.search(r"```(?:json)?\s*([\s\S]*?)```", text)
     if fence:
@@ -68,10 +132,8 @@ def parse_flashcards(raw: str) -> list[Flashcard]:
     for item in arr:
         if not isinstance(item, dict):
             continue
-        q = item.get("question") or item.get("q") or ""
-        a = item.get("answer") or item.get("a") or ""
-        q = str(q).strip()
-        a = str(a).strip()
+        q = str(item.get("question") or item.get("q") or "").strip()
+        a = str(item.get("answer") or item.get("a") or "").strip()
         if q and a:
             cards.append(Flashcard(question=q, answer=a))
     return cards

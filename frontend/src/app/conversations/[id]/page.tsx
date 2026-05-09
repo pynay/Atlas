@@ -99,6 +99,98 @@ function MessageBubble({ msg, onClipClick }: { msg: LiveMessage; onClipClick?: (
   );
 }
 
+function FlashcardDeck({ cards }: { cards: FlashcardItem[] }) {
+  const [index, setIndex] = useState(0);
+  const [flipped, setFlipped] = useState(false);
+
+  if (cards.length === 0) {
+    return <p className="font-mono text-[10px] text-white/40">No cards produced.</p>;
+  }
+
+  const card = cards[index];
+
+  function go(dir: 1 | -1) {
+    setIndex(i => (i + dir + cards.length) % cards.length);
+    setFlipped(false);
+  }
+
+  return (
+    <div className="h-full flex flex-col items-center justify-center gap-4 px-6 py-4">
+      <div className="font-mono text-[9px] text-white/30 tracking-widest">
+        {String(index + 1).padStart(2, '0')} / {String(cards.length).padStart(2, '0')}
+        <span className="ml-3 text-white/20">{flipped ? '— ANSWER' : '— QUESTION'}</span>
+      </div>
+
+      {/* 3D flip card */}
+      <div
+        className="w-full flex-1 cursor-pointer"
+        style={{ perspective: '1200px', maxHeight: '420px' }}
+        onClick={() => setFlipped(f => !f)}
+      >
+        <div
+          style={{
+            transformStyle: 'preserve-3d',
+            transition: 'transform 0.55s cubic-bezier(0.4, 0, 0.2, 1)',
+            transform: flipped ? 'rotateX(180deg)' : 'rotateX(0deg)',
+            position: 'relative',
+            height: '100%',
+            minHeight: '220px',
+          }}
+        >
+          {/* Front — question */}
+          <div
+            style={{ backfaceVisibility: 'hidden', WebkitBackfaceVisibility: 'hidden' }}
+            className="absolute inset-0 border border-white/20 bg-white/[0.02] p-8 flex flex-col items-center justify-center gap-4"
+          >
+            <div className="font-mono text-[9px] text-white/25 tracking-widest">QUESTION</div>
+            <div className="font-mono text-sm text-white/90 text-center leading-relaxed">{card.question}</div>
+            <div className="font-mono text-[9px] text-white/20 mt-2">click to flip</div>
+          </div>
+
+          {/* Back — answer */}
+          <div
+            style={{
+              backfaceVisibility: 'hidden',
+              WebkitBackfaceVisibility: 'hidden',
+              transform: 'rotateX(180deg)',
+            }}
+            className="absolute inset-0 border border-white/30 bg-white/[0.04] p-8 flex flex-col items-center justify-center gap-4"
+          >
+            <div className="font-mono text-[9px] text-white/40 tracking-widest">ANSWER</div>
+            <div className="font-mono text-xs text-white/75 text-center leading-relaxed">{card.answer}</div>
+            <div className="font-mono text-[9px] text-white/20 mt-2">click to flip back</div>
+          </div>
+        </div>
+      </div>
+
+      {/* Navigation */}
+      <div className="flex items-center gap-4">
+        <button
+          onClick={() => go(-1)}
+          className="px-4 py-1.5 border border-white/20 font-mono text-[10px] text-white/50 hover:border-white/60 hover:text-white transition-colors"
+        >
+          ← PREV
+        </button>
+        <div className="flex gap-1">
+          {cards.map((_, i) => (
+            <button
+              key={i}
+              onClick={() => { setIndex(i); setFlipped(false); }}
+              className={`w-1.5 h-1.5 rounded-full transition-colors ${i === index ? 'bg-white' : 'bg-white/20 hover:bg-white/40'}`}
+            />
+          ))}
+        </div>
+        <button
+          onClick={() => go(1)}
+          className="px-4 py-1.5 border border-white/20 font-mono text-[10px] text-white/50 hover:border-white/60 hover:text-white transition-colors"
+        >
+          NEXT →
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export default function ConversationPage() {
   const router = useRouter();
   const params = useParams();
@@ -111,12 +203,39 @@ export default function ConversationPage() {
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
   const [error, setError] = useState('');
+  const [splitPct, setSplitPct] = useState(50);
+  const splitContainerRef = useRef<HTMLDivElement>(null);
+  const dragging = useRef(false);
+
+  const onDividerMouseDown = useCallback(() => {
+    dragging.current = true;
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+
+    const onMove = (e: MouseEvent) => {
+      if (!dragging.current || !splitContainerRef.current) return;
+      const rect = splitContainerRef.current.getBoundingClientRect();
+      const pct = ((e.clientX - rect.left) / rect.width) * 100;
+      setSplitPct(Math.min(80, Math.max(20, pct)));
+    };
+
+    const onUp = () => {
+      dragging.current = false;
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+    };
+
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+  }, []);
+
   const [studyView, setStudyView] = useState<'none' | 'notes' | 'cards'>('none');
   const [studyLoading, setStudyLoading] = useState(false);
   const [studyError, setStudyError] = useState('');
   const [notes, setNotes] = useState<string | null>(null);
   const [flashcards, setFlashcards] = useState<FlashcardItem[] | null>(null);
-  const [revealed, setRevealed] = useState<Set<number>>(new Set());
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -259,7 +378,6 @@ export default function ConversationPage() {
     if (!conv) return;
     setStudyView('cards');
     setStudyError('');
-    setRevealed(new Set());
     if (flashcards !== null) return;
     setStudyLoading(true);
     try {
@@ -274,14 +392,6 @@ export default function ConversationPage() {
 
   const closeStudy = useCallback(() => setStudyView('none'), []);
 
-  const toggleCard = useCallback((idx: number) => {
-    setRevealed(prev => {
-      const next = new Set(prev);
-      if (next.has(idx)) next.delete(idx);
-      else next.add(idx);
-      return next;
-    });
-  }, []);
 
   return (
     <main className="h-screen bg-black flex flex-col overflow-hidden">
@@ -301,9 +411,9 @@ export default function ConversationPage() {
       </header>
 
       {/* Main split layout */}
-      <div className="flex-1 flex overflow-hidden">
+      <div ref={splitContainerRef} className="flex-1 flex overflow-hidden">
         {/* Left: Video player */}
-        <div className="w-1/2 flex flex-col border-r border-white/20 bg-black overflow-hidden">
+        <div className="flex flex-col bg-black overflow-hidden" style={{ width: `${splitPct}%` }}>
           <div className="flex-none px-4 py-2 border-b border-white/10 flex items-center gap-2">
             <span className="font-mono text-[9px] text-white/30 tracking-wider">VIDEO.STREAM</span>
             <div className="flex-1 h-px bg-white/10" />
@@ -332,11 +442,18 @@ export default function ConversationPage() {
           </div>
         </div>
 
+        {/* Drag divider */}
+        <div
+          onMouseDown={onDividerMouseDown}
+          className="w-1 bg-white/10 hover:bg-white/40 active:bg-white/60 cursor-col-resize flex-none transition-colors"
+          title="Drag to resize"
+        />
+
         {/* Right: Chat panel */}
-        <div className="w-1/2 flex flex-col overflow-hidden">
-          <div className="flex-none px-4 py-2 border-b border-white/10 flex items-center gap-2">
-            <span className="font-mono text-[9px] text-white/30 tracking-wider">CHAT.INTERFACE</span>
-            <div className="flex-1 h-px bg-white/10" />
+        <div className="flex flex-col overflow-hidden flex-1 bg-white/[0.02]">
+          <div className="flex-none px-4 py-2 border-b border-white/20 flex items-center gap-2 bg-white/[0.02]">
+            <span className="font-mono text-[9px] text-white/50 tracking-wider">CHAT.INTERFACE</span>
+            <div className="flex-1 h-px bg-white/15" />
             <button
               onClick={openNotes}
               className={`font-mono text-[9px] tracking-wider px-2 py-0.5 border transition-colors ${
@@ -362,7 +479,7 @@ export default function ConversationPage() {
 
           {/* Study panel (notes / flashcards) — overlays messages when active */}
           {studyView !== 'none' && (
-            <div className="flex-1 overflow-y-auto px-4 py-4 flex flex-col gap-3 scrollbar-thin">
+            <div className="flex-1 flex flex-col overflow-hidden">
               <div className="flex items-center gap-2">
                 <span className="font-mono text-[9px] text-white/40 tracking-wider">
                   {studyView === 'notes' ? 'STUDY.NOTES' : 'FLASHCARDS'}
@@ -387,38 +504,14 @@ export default function ConversationPage() {
               )}
 
               {studyView === 'notes' && notes && (
-                <div className="text-xs leading-relaxed text-white/70 border border-white/10 p-3 bg-white/[0.02]">
+                <div className="flex-1 overflow-y-auto text-xs leading-relaxed text-white/70 border border-white/10 p-4 bg-white/[0.02] scrollbar-thin">
                   <MessageContent text={notes} />
                 </div>
               )}
 
               {studyView === 'cards' && flashcards && (
-                <div className="flex flex-col gap-2">
-                  {flashcards.length === 0 && (
-                    <p className="font-mono text-[10px] text-white/40">No cards produced.</p>
-                  )}
-                  {flashcards.map((card, i) => {
-                    const open = revealed.has(i);
-                    return (
-                      <button
-                        key={i}
-                        onClick={() => toggleCard(i)}
-                        className="text-left border border-white/10 hover:border-white/30 p-3 bg-white/[0.02] transition-colors"
-                      >
-                        <div className="font-mono text-[9px] text-white/30 tracking-wider mb-1">
-                          {String(i + 1).padStart(2, '0')}
-                        </div>
-                        <div className="text-xs text-white/85 mb-2">{card.question}</div>
-                        {open ? (
-                          <div className="text-xs text-white/60 border-t border-white/10 pt-2 mt-1">
-                            {card.answer}
-                          </div>
-                        ) : (
-                          <div className="font-mono text-[9px] text-white/30">click to reveal</div>
-                        )}
-                      </button>
-                    );
-                  })}
+                <div className="flex-1 overflow-hidden">
+                  <FlashcardDeck cards={flashcards} />
                 </div>
               )}
             </div>
@@ -432,11 +525,11 @@ export default function ConversationPage() {
           >
             {messages.length === 0 && !sending && (
               <div className="flex flex-col items-center justify-center h-full gap-3 text-center">
-                <div className="font-mono text-white/20 text-xs">
+                <div className="font-mono text-white/50 text-xs">
                   Ask anything about the video.
                 </div>
-                <div className="font-mono text-white/10 text-[10px]">
-                  Cliff will search the indexed clips and answer with timestamps.
+                <div className="font-mono text-white/30 text-[10px]">
+                  Atlas will search the indexed clips and answer with timestamps.
                 </div>
               </div>
             )}
@@ -453,8 +546,8 @@ export default function ConversationPage() {
           </div>
 
           {/* Input bar */}
-          <div className="flex-none border-t border-white/20 p-3">
-            <div className="flex items-center gap-2 border border-white/20 focus-within:border-white/50 transition-colors">
+          <div className="flex-none border-t border-white/30 p-3 bg-white/[0.03]">
+            <div className="flex items-center gap-2 border border-white/40 focus-within:border-white transition-colors bg-white/[0.04]">
               <input
                 ref={inputRef}
                 type="text"
@@ -463,12 +556,12 @@ export default function ConversationPage() {
                 onKeyDown={handleKeyDown}
                 placeholder="Ask about the video…"
                 disabled={sending}
-                className="flex-1 bg-transparent px-3 py-2.5 font-mono text-xs text-white placeholder:text-white/20 focus:outline-none disabled:opacity-40"
+                className="flex-1 bg-transparent px-3 py-2.5 font-mono text-xs text-white placeholder:text-white/40 focus:outline-none disabled:opacity-40"
               />
               <button
                 onClick={sendMessage}
                 disabled={sending || !input.trim()}
-                className="px-4 py-2.5 font-mono text-xs text-black bg-white hover:bg-white/80 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                className="px-4 py-2.5 font-mono text-xs text-black bg-white hover:bg-white/90 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
               >
                 {sending ? '…' : '▶'}
               </button>

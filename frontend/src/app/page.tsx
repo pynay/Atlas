@@ -1,12 +1,22 @@
 'use client';
 
-import { useActionState } from 'react';
+import { useActionState, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import AnimationPage from '@/components/ui/hero-ascii-one';
 import { createVideo } from '@/lib/api';
 
+function getYouTubeId(url: string): string | null {
+  try {
+    const u = new URL(url);
+    if (u.hostname === 'youtu.be') return u.pathname.slice(1).split('?')[0];
+    if (u.hostname.includes('youtube.com')) return u.searchParams.get('v');
+  } catch { /* not a valid URL yet */ }
+  return null;
+}
+
 export default function LandingPage() {
   const router = useRouter();
+  const [urlValue, setUrlValue] = useState('');
 
   const [state, formAction, isPending] = useActionState(
     async (_prev: { error: string }, formData: FormData) => {
@@ -102,6 +112,18 @@ export default function LandingPage() {
 
             {/* URL form */}
             <form action={formAction} className="flex flex-col gap-3">
+              {/* Thumbnail preview */}
+              {getYouTubeId(urlValue) && (
+                <div className="relative w-full aspect-video border border-white/10 overflow-hidden">
+                  <img
+                    src={`https://img.youtube.com/vi/${getYouTubeId(urlValue)}/hqdefault.jpg`}
+                    alt="Video thumbnail"
+                    className="w-full h-full object-cover opacity-70"
+                  />
+                  <div className="absolute inset-0 bg-gradient-to-t from-black/50 to-transparent" />
+                </div>
+              )}
+
               <div className="relative">
                 <span className="absolute left-3 top-1/2 -translate-y-1/2 text-white/40 font-mono text-xs select-none">
                   ▶
@@ -109,6 +131,8 @@ export default function LandingPage() {
                 <input
                   type="url"
                   name="url"
+                  value={urlValue}
+                  onChange={e => setUrlValue(e.target.value)}
                   placeholder="https://youtube.com/watch?v=..."
                   required
                   className="w-full bg-transparent border border-white/40 text-white font-mono text-xs lg:text-sm pl-8 pr-4 py-2.5 placeholder:text-white/25 focus:outline-none focus:border-white transition-colors"
