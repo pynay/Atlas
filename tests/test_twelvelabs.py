@@ -100,6 +100,22 @@ async def test_search_returns_hits():
 
 
 @pytest.mark.asyncio
+async def test_analyze_returns_data_field():
+    with respx.mock(base_url="https://api.twelvelabs.io/v1.3") as mock:
+        route = mock.post("/analyze").mock(
+            return_value=httpx.Response(200, json={"id": "g_1", "data": "## Notes\n- foo"})
+        )
+        async with TwelveLabsClient(api_key="k", index_id="idx") as c:
+            text = await c.analyze("v_1", "summarize please")
+    assert text == "## Notes\n- foo"
+    sent = route.calls.last.request
+    assert sent.headers.get("content-type", "").startswith("multipart/form-data")
+    body = sent.content.decode("utf-8", errors="replace")
+    assert "video_id" in body
+    assert "summarize please" in body
+
+
+@pytest.mark.asyncio
 async def test_raises_on_http_error(tmp_path):
     f = tmp_path / "video.mp4"
     f.write_bytes(b"fake")

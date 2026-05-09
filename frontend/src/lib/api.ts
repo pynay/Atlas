@@ -131,6 +131,39 @@ export async function* streamMessage(
   }
 }
 
+export interface NotesResponse {
+  video_id: number;
+  notes: string;
+}
+
+export interface FlashcardItem {
+  question: string;
+  answer: string;
+}
+
+export interface FlashcardsResponse {
+  video_id: number;
+  cards: FlashcardItem[];
+}
+
+export async function getVideoNotes(videoId: number): Promise<NotesResponse> {
+  const res = await fetch(`${API_BASE}/videos/${videoId}/notes`, { method: 'POST' });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error((err as { detail?: string }).detail ?? `HTTP ${res.status}`);
+  }
+  return res.json();
+}
+
+export async function getVideoFlashcards(videoId: number): Promise<FlashcardsResponse> {
+  const res = await fetch(`${API_BASE}/videos/${videoId}/flashcards`, { method: 'POST' });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error((err as { detail?: string }).detail ?? `HTTP ${res.status}`);
+  }
+  return res.json();
+}
+
 export function toYouTubeEmbedUrl(sourceUrl: string): string | null {
   try {
     const url = new URL(sourceUrl);

@@ -70,6 +70,19 @@ class TwelveLabsClient:
             raise TwelveLabsError(f"upload task failed: {r.status_code} {r.text}")
         return r.json()["_id"]
 
+    async def analyze(self, video_id: str, prompt: str, temperature: float = 0.2) -> str:
+        """Run Pegasus open-ended generation against a single video."""
+        files = [
+            ("video_id", (None, video_id)),
+            ("prompt", (None, prompt)),
+            ("temperature", (None, str(temperature))),
+        ]
+        r = await self._client.post("/analyze", files=files, timeout=120.0)
+        if r.status_code >= 400:
+            raise TwelveLabsError(f"analyze failed: {r.status_code} {r.text}")
+        body = r.json()
+        return body.get("data") or body.get("text") or body.get("result") or ""
+
     async def get_video_hls_url(self, video_id: str) -> Optional[str]:
         r = await self._client.get(f"/indexes/{self._index_id}/videos/{video_id}")
         if r.status_code >= 400:

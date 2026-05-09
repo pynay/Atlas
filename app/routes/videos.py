@@ -4,7 +4,14 @@ from sqlmodel import Session
 from app.config import get_settings
 from app.db import get_session
 from app.models import Video
-from app.schemas import CreateVideoRequest, VideoResponse
+from app.schemas import (
+    CreateVideoRequest,
+    FlashcardItem,
+    FlashcardsResponse,
+    NotesResponse,
+    VideoResponse,
+)
+from app.services.study import generate_flashcards, generate_notes
 from app.services.twelvelabs import TwelveLabsClient, TwelveLabsError
 from app.services.youtube import download_to_tmp
 
@@ -87,3 +94,37 @@ async def get_video(
         session.refresh(v)
 
     return _to_response(v)
+
+
+def _require_ready_video(video_id: int, session: Session) -> Video:
+    v = session.get(Video, video_id)
+    if v is None:
+        raise HTTPException(status_code=404, detail="video not found")
+    if v.status != "ready" or not v.twelvelabs_video_id:
+        raise HTTPException(
+            status_code=409, detail=f"video not ready (status={v.status})"
+        )
+    return v
+
+
+@router.post("/{video_id}/notes", response_model=NotesResponse)
+async def post_video_notes(
+    video_id: int,
+    session: Session = Depends(get_session),
+) -> NotesResponse:
+    v = _require_ready_video(video_id, session)
+    notes = await generate_notes(v.twelvelabs_video_id)
+    return NotesResponse(video_id=video_id, notes=notes)
+
+
+@router.post("/{video_id}/flashcards", response_model=FlashcardsResponse)
+async def post_video_flashcards(
+    video_id: int,
+    session: Session = Depends(get_session),
+) -> FlashcardsResponse:
+    v = _require_ready_video(video_id, session)
+    cards = await generate_flashcards(v.twelvelabs_video_id)
+    return FlashcardsResponse(
+        video_id=video_id,
+        cards=[FlashcardItem(question=c.question, answer=c.answer) for c in cards],
+    )

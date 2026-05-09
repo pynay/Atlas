@@ -47,3 +47,18 @@ class ConversationDetailResponse(BaseModel):
 
 class CreateMessageRequest(BaseModel):
     content: str
+
+
+class NotesResponse(BaseModel):
+    video_id: int
+    notes: str
+
+
+class FlashcardItem(BaseModel):
+    question: str
+    answer: str
+
+
+class FlashcardsResponse(BaseModel):
+    video_id: int
+    cards: list[FlashcardItem]

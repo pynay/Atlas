@@ -4,8 +4,11 @@ import { useEffect, useRef, useState, useCallback } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import {
   getConversation,
+  getVideoFlashcards,
+  getVideoNotes,
   streamMessage,
   type ConversationDetailResponse,
+  type FlashcardItem,
   type MessageResponse,
   type SourceRef,
 } from '@/lib/api';
@@ -108,6 +111,12 @@ export default function ConversationPage() {
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
   const [error, setError] = useState('');
+  const [studyView, setStudyView] = useState<'none' | 'notes' | 'cards'>('none');
+  const [studyLoading, setStudyLoading] = useState(false);
+  const [studyError, setStudyError] = useState('');
+  const [notes, setNotes] = useState<string | null>(null);
+  const [flashcards, setFlashcards] = useState<FlashcardItem[] | null>(null);
+  const [revealed, setRevealed] = useState<Set<number>>(new Set());
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -230,6 +239,50 @@ export default function ConversationPage() {
     }
   }
 
+  const openNotes = useCallback(async () => {
+    if (!conv) return;
+    setStudyView('notes');
+    setStudyError('');
+    if (notes !== null) return;
+    setStudyLoading(true);
+    try {
+      const r = await getVideoNotes(conv.video_id);
+      setNotes(r.notes);
+    } catch (err) {
+      setStudyError(err instanceof Error ? err.message : 'Failed to generate notes');
+    } finally {
+      setStudyLoading(false);
+    }
+  }, [conv, notes]);
+
+  const openFlashcards = useCallback(async () => {
+    if (!conv) return;
+    setStudyView('cards');
+    setStudyError('');
+    setRevealed(new Set());
+    if (flashcards !== null) return;
+    setStudyLoading(true);
+    try {
+      const r = await getVideoFlashcards(conv.video_id);
+      setFlashcards(r.cards);
+    } catch (err) {
+      setStudyError(err instanceof Error ? err.message : 'Failed to generate flashcards');
+    } finally {
+      setStudyLoading(false);
+    }
+  }, [conv, flashcards]);
+
+  const closeStudy = useCallback(() => setStudyView('none'), []);
+
+  const toggleCard = useCallback((idx: number) => {
+    setRevealed(prev => {
+      const next = new Set(prev);
+      if (next.has(idx)) next.delete(idx);
+      else next.add(idx);
+      return next;
+    });
+  }, []);
+
   return (
     <main className="h-screen bg-black flex flex-col overflow-hidden">
       {/* Top bar */}
@@ -284,11 +337,99 @@ export default function ConversationPage() {
           <div className="flex-none px-4 py-2 border-b border-white/10 flex items-center gap-2">
             <span className="font-mono text-[9px] text-white/30 tracking-wider">CHAT.INTERFACE</span>
             <div className="flex-1 h-px bg-white/10" />
+            <button
+              onClick={openNotes}
+              className={`font-mono text-[9px] tracking-wider px-2 py-0.5 border transition-colors ${
+                studyView === 'notes'
+                  ? 'border-white/60 text-white'
+                  : 'border-white/20 text-white/40 hover:border-white/40 hover:text-white/70'
+              }`}
+            >
+              NOTES
+            </button>
+            <button
+              onClick={openFlashcards}
+              className={`font-mono text-[9px] tracking-wider px-2 py-0.5 border transition-colors ${
+                studyView === 'cards'
+                  ? 'border-white/60 text-white'
+                  : 'border-white/20 text-white/40 hover:border-white/40 hover:text-white/70'
+              }`}
+            >
+              CARDS
+            </button>
             <span className="font-mono text-[9px] text-white/20">{messages.length} MSG</span>
           </div>
 
+          {/* Study panel (notes / flashcards) — overlays messages when active */}
+          {studyView !== 'none' && (
+            <div className="flex-1 overflow-y-auto px-4 py-4 flex flex-col gap-3 scrollbar-thin">
+              <div className="flex items-center gap-2">
+                <span className="font-mono text-[9px] text-white/40 tracking-wider">
+                  {studyView === 'notes' ? 'STUDY.NOTES' : 'FLASHCARDS'}
+                </span>
+                <div className="flex-1 h-px bg-white/10" />
+                <button
+                  onClick={closeStudy}
+                  className="font-mono text-[9px] text-white/40 hover:text-white border border-white/20 px-2 py-0.5"
+                >
+                  CLOSE
+                </button>
+              </div>
+
+              {studyLoading && (
+                <div className="font-mono text-[10px] text-white/40">
+                  Generating… (Pegasus can take 30–60s)
+                </div>
+              )}
+
+              {studyError && (
+                <p className="font-mono text-[10px] text-red-400">⚠ {studyError}</p>
+              )}
+
+              {studyView === 'notes' && notes && (
+                <div className="text-xs leading-relaxed text-white/70 border border-white/10 p-3 bg-white/[0.02]">
+                  <MessageContent text={notes} />
+                </div>
+              )}
+
+              {studyView === 'cards' && flashcards && (
+                <div className="flex flex-col gap-2">
+                  {flashcards.length === 0 && (
+                    <p className="font-mono text-[10px] text-white/40">No cards produced.</p>
+                  )}
+                  {flashcards.map((card, i) => {
+                    const open = revealed.has(i);
+                    return (
+                      <button
+                        key={i}
+                        onClick={() => toggleCard(i)}
+                        className="text-left border border-white/10 hover:border-white/30 p-3 bg-white/[0.02] transition-colors"
+                      >
+                        <div className="font-mono text-[9px] text-white/30 tracking-wider mb-1">
+                          {String(i + 1).padStart(2, '0')}
+                        </div>
+                        <div className="text-xs text-white/85 mb-2">{card.question}</div>
+                        {open ? (
+                          <div className="text-xs text-white/60 border-t border-white/10 pt-2 mt-1">
+                            {card.answer}
+                          </div>
+                        ) : (
+                          <div className="font-mono text-[9px] text-white/30">click to reveal</div>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
+
           {/* Messages */}
-          <div className="flex-1 overflow-y-auto px-4 py-4 flex flex-col gap-4 scrollbar-thin">
+          <div
+            className={`flex-1 overflow-y-auto px-4 py-4 flex flex-col gap-4 scrollbar-thin${
+              studyView !== 'none' ? ' hidden' : ''
+            }`}
+          >
             {messages.length === 0 && !sending && (
               <div className="flex flex-col items-center justify-center h-full gap-3 text-center">
                 <div className="font-mono text-white/20 text-xs">
