@@ -6,10 +6,12 @@ import {
   getConversation,
   getVideoFlashcards,
   getVideoNotes,
+  getVideoProblems,
   streamMessage,
   type ConversationDetailResponse,
   type FlashcardItem,
   type MessageResponse,
+  type ProblemItem,
   type SourceRef,
 } from '@/lib/api';
 import AtlasPlayer from '@/components/AtlasPlayer';
@@ -191,6 +193,59 @@ function FlashcardDeck({ cards }: { cards: FlashcardItem[] }) {
   );
 }
 
+function ProblemList({ problems }: { problems: ProblemItem[] }) {
+  const [revealed, setRevealed] = useState<Set<number>>(new Set());
+
+  if (problems.length === 0) {
+    return <p className="font-mono text-[10px] text-white/40">No problems produced.</p>;
+  }
+
+  function toggle(i: number) {
+    setRevealed(prev => {
+      const next = new Set(prev);
+      if (next.has(i)) next.delete(i);
+      else next.add(i);
+      return next;
+    });
+  }
+
+  return (
+    <div className="flex-1 overflow-y-auto px-1 py-2 flex flex-col gap-3 scrollbar-thin">
+      {problems.map((p, i) => {
+        const open = revealed.has(i);
+        return (
+          <div
+            key={i}
+            className="border border-white/15 bg-white/[0.02] p-4"
+          >
+            <div className="flex items-center gap-2 mb-2">
+              <span className="font-mono text-[9px] text-white/40 tracking-widest">
+                {String(i + 1).padStart(2, '0')}
+              </span>
+              <div className="flex-1 h-px bg-white/10" />
+              <button
+                onClick={() => toggle(i)}
+                className="font-mono text-[9px] tracking-wider px-2 py-0.5 border border-white/20 text-white/50 hover:border-white/50 hover:text-white transition-colors"
+              >
+                {open ? 'HIDE SOLUTION' : 'REVEAL SOLUTION'}
+              </button>
+            </div>
+            <div className="text-xs leading-relaxed text-white/85 mb-1">
+              <MessageContent text={p.question} />
+            </div>
+            {open && (
+              <div className="text-xs leading-relaxed text-white/65 border-t border-white/10 pt-3 mt-3">
+                <div className="font-mono text-[9px] text-white/30 tracking-widest mb-2">SOLUTION</div>
+                <MessageContent text={p.answer} />
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 export default function ConversationPage() {
   const router = useRouter();
   const params = useParams();
@@ -231,11 +286,12 @@ export default function ConversationPage() {
     window.addEventListener('mouseup', onUp);
   }, []);
 
-  const [studyView, setStudyView] = useState<'none' | 'notes' | 'cards'>('none');
+  const [studyView, setStudyView] = useState<'none' | 'notes' | 'cards' | 'problems'>('none');
   const [studyLoading, setStudyLoading] = useState(false);
   const [studyError, setStudyError] = useState('');
   const [notes, setNotes] = useState<string | null>(null);
   const [flashcards, setFlashcards] = useState<FlashcardItem[] | null>(null);
+  const [problems, setProblems] = useState<ProblemItem[] | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -390,6 +446,22 @@ export default function ConversationPage() {
     }
   }, [conv, flashcards]);
 
+  const openProblems = useCallback(async () => {
+    if (!conv) return;
+    setStudyView('problems');
+    setStudyError('');
+    if (problems !== null) return;
+    setStudyLoading(true);
+    try {
+      const r = await getVideoProblems(conv.video_id);
+      setProblems(r.problems);
+    } catch (err) {
+      setStudyError(err instanceof Error ? err.message : 'Failed to generate problems');
+    } finally {
+      setStudyLoading(false);
+    }
+  }, [conv, problems]);
+
   const closeStudy = useCallback(() => setStudyView('none'), []);
 
 
@@ -474,6 +546,16 @@ export default function ConversationPage() {
             >
               CARDS
             </button>
+            <button
+              onClick={openProblems}
+              className={`font-mono text-[9px] tracking-wider px-2 py-0.5 border transition-colors ${
+                studyView === 'problems'
+                  ? 'border-white/60 text-white'
+                  : 'border-white/20 text-white/40 hover:border-white/40 hover:text-white/70'
+              }`}
+            >
+              PROBLEMS
+            </button>
             <span className="font-mono text-[9px] text-white/20">{messages.length} MSG</span>
           </div>
 
@@ -482,7 +564,11 @@ export default function ConversationPage() {
             <div className="flex-1 flex flex-col overflow-hidden">
               <div className="flex items-center gap-2">
                 <span className="font-mono text-[9px] text-white/40 tracking-wider">
-                  {studyView === 'notes' ? 'STUDY.NOTES' : 'FLASHCARDS'}
+                  {studyView === 'notes'
+                    ? 'STUDY.NOTES'
+                    : studyView === 'cards'
+                    ? 'FLASHCARDS'
+                    : 'PRACTICE.PROBLEMS'}
                 </span>
                 <div className="flex-1 h-px bg-white/10" />
                 <button
@@ -513,6 +599,10 @@ export default function ConversationPage() {
                 <div className="flex-1 overflow-hidden">
                   <FlashcardDeck cards={flashcards} />
                 </div>
+              )}
+
+              {studyView === 'problems' && problems && (
+                <ProblemList problems={problems} />
               )}
             </div>
           )}

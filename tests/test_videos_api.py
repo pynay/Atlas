@@ -8,7 +8,7 @@ from sqlmodel import Session, SQLModel, create_engine
 from app.db import get_session
 from app.main import app
 from app.models import Video
-from app.services.study import Flashcard
+from app.services.study import Flashcard, Problem
 
 
 @pytest.fixture
@@ -154,4 +154,36 @@ def test_post_flashcards_409_when_not_ready(client_and_engine):
     client, engine = client_and_engine
     vid = _seed_indexing_video(engine)
     r = client.post(f"/videos/{vid}/flashcards")
+    assert r.status_code == 409
+
+
+def test_post_problems(client_and_engine):
+    client, engine = client_and_engine
+    vid = _seed_ready_video(engine)
+    fake = AsyncMock(
+        return_value=[
+            Problem(question="Compute 2+2.", answer="Apply addition: 2 + 2 = 4."),
+            Problem(question="Why is X?", answer="Because Y, hence X."),
+        ]
+    )
+    with patch("app.routes.videos.generate_problems", new=fake):
+        r = client.post(f"/videos/{vid}/problems")
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["video_id"] == vid
+    assert len(body["problems"]) == 2
+    assert body["problems"][0]["question"] == "Compute 2+2."
+    assert body["problems"][0]["answer"].endswith("= 4.")
+
+
+def test_post_problems_404(client_and_engine):
+    client, _ = client_and_engine
+    r = client.post("/videos/9999/problems")
+    assert r.status_code == 404
+
+
+def test_post_problems_409_when_not_ready(client_and_engine):
+    client, engine = client_and_engine
+    vid = _seed_indexing_video(engine)
+    r = client.post(f"/videos/{vid}/problems")
     assert r.status_code == 409

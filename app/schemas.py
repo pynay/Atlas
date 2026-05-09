@@ -62,3 +62,13 @@ class FlashcardItem(BaseModel):
 class FlashcardsResponse(BaseModel):
     video_id: int
     cards: list[FlashcardItem]
+
+
+class ProblemItem(BaseModel):
+    question: str
+    answer: str
+
+
+class ProblemsResponse(BaseModel):
+    video_id: int
+    problems: list[ProblemItem]

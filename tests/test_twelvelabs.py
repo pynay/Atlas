@@ -109,9 +109,9 @@ async def test_analyze_returns_data_field():
             text = await c.analyze("v_1", "summarize please")
     assert text == "## Notes\n- foo"
     sent = route.calls.last.request
-    assert sent.headers.get("content-type", "").startswith("multipart/form-data")
+    assert sent.headers.get("content-type", "").startswith("application/json")
     body = sent.content.decode("utf-8", errors="replace")
-    assert "video_id" in body
+    assert "v_1" in body
     assert "summarize please" in body
 
 

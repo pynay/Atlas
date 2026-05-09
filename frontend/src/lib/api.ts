@@ -164,6 +164,25 @@ export async function getVideoFlashcards(videoId: number): Promise<FlashcardsRes
   return res.json();
 }
 
+export interface ProblemItem {
+  question: string;
+  answer: string;
+}
+
+export interface ProblemsResponse {
+  video_id: number;
+  problems: ProblemItem[];
+}
+
+export async function getVideoProblems(videoId: number): Promise<ProblemsResponse> {
+  const res = await fetch(`${API_BASE}/videos/${videoId}/problems`, { method: 'POST' });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error((err as { detail?: string }).detail ?? `HTTP ${res.status}`);
+  }
+  return res.json();
+}
+
 export function toYouTubeEmbedUrl(sourceUrl: string): string | null {
   try {
     const url = new URL(sourceUrl);

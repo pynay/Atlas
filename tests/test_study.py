@@ -1,6 +1,6 @@
 import pytest
 
-from app.services.study import Flashcard, parse_flashcards
+from app.services.study import Flashcard, Problem, parse_flashcards, parse_problems
 
 
 def test_parse_flashcards_clean_json():
@@ -41,3 +41,27 @@ def test_parse_flashcards_skips_blank_entries():
 def test_parse_flashcards_no_array_raises():
     with pytest.raises(ValueError):
         parse_flashcards("no JSON here")
+
+
+def test_parse_problems_clean_json():
+    raw = (
+        '[{"question": "Compute 2+2.", "answer": "Apply addition: 2 + 2 = 4."},'
+        ' {"question": "Why is X?", "answer": "Because Y, therefore X."}]'
+    )
+    problems = parse_problems(raw)
+    assert problems == [
+        Problem(question="Compute 2+2.", answer="Apply addition: 2 + 2 = 4."),
+        Problem(question="Why is X?", answer="Because Y, therefore X."),
+    ]
+
+
+def test_parse_problems_with_code_fence():
+    raw = '```json\n[{"question": "Q?", "answer": "A: worked solution."}]\n```'
+    problems = parse_problems(raw)
+    assert len(problems) == 1
+    assert problems[0].answer.startswith("A:")
+
+
+def test_parse_problems_no_array_raises():
+    with pytest.raises(ValueError):
+        parse_problems("nothing here")
