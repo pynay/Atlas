@@ -8,7 +8,7 @@ class Settings(BaseSettings):
     twelvelabs_index_id: str = ""
     database_url: str = "sqlite:///./atlas.db"
     twelvelabs_base_url: str = "https://api.twelvelabs.io/v1.3"
-    claude_model: str = "claude-opus-4-7"
+    claude_model: str = "claude-sonnet-4-6"
     poll_interval_seconds: int = 10
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
