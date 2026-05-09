@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, useCallback } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import {
   getConversation,
+  getVideo,
   getVideoFlashcards,
   getVideoInsights,
   getVideoNotes,
@@ -15,6 +16,7 @@ import {
   type MessageResponse,
   type ProblemItem,
   type SourceRef,
+  type VideoResponse,
 } from '@/lib/api';
 import AtlasPlayer from '@/components/AtlasPlayer';
 import MessageContent from '@/components/MessageContent';
@@ -468,7 +470,7 @@ export default function ConversationPage() {
 
   const [conv, setConv] = useState<ConversationDetailResponse | null>(null);
   const [messages, setMessages] = useState<LiveMessage[]>([]);
-  const [hlsUrl, setHlsUrl] = useState<string | null>(null);
+  const [video, setVideo] = useState<VideoResponse | null>(null);
   const [seekTo, setSeekTo] = useState<number | undefined>(undefined);
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
@@ -590,15 +592,32 @@ export default function ConversationPage() {
       .catch(() => setError('Could not load conversation'));
   }, [convId]);
 
-  // Fetch HLS stream URL for the native player
+  // Poll the video until indexing finishes. Only when status flips to "ready"
+  // (which means both Marengo and Pegasus have completed) do we let the
+  // dashboard render — until then study endpoints would 409 and the player
+  // has no HLS URL anyway.
   useEffect(() => {
     if (!conv) return;
-    fetch(`${process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000'}/videos/${conv.video_id}`)
-      .then(r => r.json())
-      .then((v: { hls_url: string | null }) => {
-        if (v.hls_url) setHlsUrl(v.hls_url);
-      })
-      .catch(() => {/* degrade gracefully */});
+    let cancelled = false;
+    let timeout: ReturnType<typeof setTimeout> | null = null;
+
+    async function tick() {
+      try {
+        const v = await getVideo(conv!.video_id);
+        if (cancelled) return;
+        setVideo(v);
+        if (v.status !== 'ready' && v.status !== 'failed') {
+          timeout = setTimeout(tick, 3000);
+        }
+      } catch {
+        if (!cancelled) timeout = setTimeout(tick, 5000);
+      }
+    }
+    tick();
+    return () => {
+      cancelled = true;
+      if (timeout) clearTimeout(timeout);
+    };
   }, [conv]);
 
   // Auto-scroll to bottom
@@ -731,6 +750,63 @@ export default function ConversationPage() {
 
   const closeStudy = useCallback(() => setStudyView('none'), []);
 
+  // Gate the dashboard: don't render the player + chat + study features
+  // until TwelveLabs indexing (Marengo + Pegasus) is fully done.
+  if (!video || (video.status !== 'ready' && video.status !== 'failed')) {
+    return (
+      <main className="h-screen bg-black flex flex-col items-center justify-center gap-6 px-6">
+        <div className="font-mono text-white text-xl font-bold tracking-widest italic -skew-x-12">
+          ATLAS
+        </div>
+        <div className="flex items-center gap-3 font-mono text-[10px] text-white/40">
+          <div className="w-1.5 h-1.5 bg-green-400/60 rounded-full animate-pulse" />
+          <span>{video ? `STATUS — ${video.status.toUpperCase()}` : 'LOADING'}</span>
+        </div>
+        <p className="font-mono text-xs text-white/50 max-w-md text-center">
+          Pegasus is still indexing this video. The dashboard will load as soon as it&apos;s
+          ready — usually 1–3 minutes.
+        </p>
+        {video?.title && (
+          <p className="font-mono text-[10px] text-white/30 max-w-md text-center truncate">
+            {video.title}
+          </p>
+        )}
+        <div className="w-48 h-px bg-white/10 relative overflow-hidden">
+          <div
+            className="absolute top-0 left-0 h-full bg-white"
+            style={{ width: '40%', animation: 'progress-slide 1.6s ease-in-out infinite' }}
+          />
+          <style>{`
+            @keyframes progress-slide {
+              0%   { transform: translateX(-100%); }
+              100% { transform: translateX(350%); }
+            }
+          `}</style>
+        </div>
+        <div className="font-mono text-[9px] text-white/20">CONV.ID: {convId}</div>
+      </main>
+    );
+  }
+
+  if (video.status === 'failed') {
+    return (
+      <main className="h-screen bg-black flex flex-col items-center justify-center gap-4 px-6">
+        <div className="font-mono text-white text-xl font-bold tracking-widest italic -skew-x-12">
+          ATLAS
+        </div>
+        <div className="text-red-400 font-mono text-lg">⚠ INGESTION FAILED</div>
+        <p className="text-white/50 font-mono text-xs max-w-sm text-center">
+          {video.error ?? 'Indexing failed for this video.'}
+        </p>
+        <button
+          onClick={() => router.push('/')}
+          className="mt-2 px-6 py-2 border border-white/40 text-white font-mono text-xs hover:border-white hover:bg-white hover:text-black transition-all"
+        >
+          ← BACK
+        </button>
+      </main>
+    );
+  }
 
   return (
     <main className="h-screen bg-black flex flex-col overflow-hidden">
@@ -760,10 +836,14 @@ export default function ConversationPage() {
           </div>
 
           <div className="flex-1 flex items-center justify-center bg-black">
-            {hlsUrl ? (
+            {video.hls_url ? (
               <div className="w-full h-full flex items-center justify-center">
                 <div className="w-full" style={{ aspectRatio: '16/9' }}>
-                  <AtlasPlayer src={hlsUrl} seekTo={seekTo} onTimeUpdate={setCurrentTime} />
+                  <AtlasPlayer
+                    src={video.hls_url}
+                    seekTo={seekTo}
+                    onTimeUpdate={setCurrentTime}
+                  />
                 </div>
               </div>
             ) : (
