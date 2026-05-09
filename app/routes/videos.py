@@ -109,6 +109,31 @@ def _require_ready_video(video_id: int, session: Session) -> Video:
     return v
 
 
+@router.get("/{video_id}/define")
+async def define_term(
+    video_id: int,
+    term: str,
+    session: Session = Depends(get_session),
+) -> dict:
+    v = session.get(Video, video_id)
+    if not v or v.status != "ready" or not v.twelvelabs_video_id:
+        return {"context": None}
+    settings = get_settings()
+    try:
+        async with TwelveLabsClient(
+            api_key=settings.twelvelabs_api_key,
+            index_id=settings.twelvelabs_index_id,
+            base_url=settings.twelvelabs_base_url,
+        ) as c:
+            hits = await c.search(v.twelvelabs_video_id, term, top_k=5)
+        for hit in hits:
+            if hit.transcription and hit.transcription.strip():
+                return {"context": hit.transcription, "start": hit.start, "end": hit.end}
+    except Exception:
+        pass
+    return {"context": None}
+
+
 @router.post("/{video_id}/notes", response_model=NotesResponse)
 async def post_video_notes(
     video_id: int,

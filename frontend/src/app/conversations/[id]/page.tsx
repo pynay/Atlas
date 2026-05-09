@@ -45,7 +45,15 @@ function SourceChip({ clip, onClick }: { clip: SourceRef; onClick?: (s: number) 
   );
 }
 
-function MessageBubble({ msg, onClipClick }: { msg: LiveMessage; onClipClick?: (s: number) => void }) {
+function MessageBubble({
+  msg,
+  onClipClick,
+  videoId,
+}: {
+  msg: LiveMessage;
+  onClipClick?: (s: number) => void;
+  videoId?: number;
+}) {
   const isUser = msg.role === 'user';
 
   return (
@@ -76,7 +84,12 @@ function MessageBubble({ msg, onClipClick }: { msg: LiveMessage; onClipClick?: (
           isUser ? (
             <span className="whitespace-pre-wrap">{msg.content}</span>
           ) : (
-            <MessageContent text={msg.content} />
+            <MessageContent
+            text={msg.content}
+            streaming={msg.streaming}
+            videoId={videoId}
+            onSeek={onClipClick}
+          />
           )
         ) : msg.streaming ? (
           <span className="opacity-40">…</span>
@@ -101,9 +114,21 @@ function MessageBubble({ msg, onClipClick }: { msg: LiveMessage; onClipClick?: (
   );
 }
 
+function exportToQuizlet(cards: FlashcardItem[]) {
+  const content = cards.map(c => `${c.question}\t${c.answer}`).join('\n');
+  const blob = new Blob([content], { type: 'text/plain' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'atlas-flashcards.txt';
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
 function FlashcardDeck({ cards }: { cards: FlashcardItem[] }) {
   const [index, setIndex] = useState(0);
   const [flipped, setFlipped] = useState(false);
+  const [showTip, setShowTip] = useState(false);
 
   if (cards.length === 0) {
     return <p className="font-mono text-[10px] text-white/40">No cards produced.</p>;
@@ -189,8 +214,82 @@ function FlashcardDeck({ cards }: { cards: FlashcardItem[] }) {
           NEXT →
         </button>
       </div>
+
+      {/* Export */}
+      <div className="flex flex-col items-center gap-2">
+        <button
+          onClick={() => { exportToQuizlet(cards); setShowTip(true); }}
+          className="px-4 py-1.5 border border-white/20 font-mono text-[10px] text-white/50 hover:border-white/60 hover:text-white transition-colors"
+        >
+          EXPORT → QUIZLET
+        </button>
+        {showTip && (
+          <p className="font-mono text-[9px] text-white/30 text-center max-w-xs leading-relaxed">
+            quizlet.com → Create → Import → paste file.{' '}
+            <span className="text-white/50">Tab</span> between term/def,{' '}
+            <span className="text-white/50">New line</span> between cards.
+          </p>
+        )}
+      </div>
     </div>
   );
+}
+
+function downloadProblemsPdf(problems: ProblemItem[]) {
+  function mdToHtml(raw: string): string {
+    return raw
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+      .replace(/\n/g, '<br>');
+  }
+  const date = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+  const problemsHtml = problems.map((p, i) => `
+    <div class="problem">
+      <div class="prob-row">
+        <span class="prob-num">${String(i + 1).padStart(2, '0')}</span>
+        <div class="prob-q">${mdToHtml(p.question)}</div>
+      </div>
+      <div class="work-space">${Array.from({ length: 5 }, () => '<div class="work-line"></div>').join('')}</div>
+    </div>`).join('');
+  const solutionsHtml = problems.map((p, i) => `
+    <div class="solution">
+      <div class="sol-label">Problem ${String(i + 1).padStart(2, '0')}</div>
+      <div class="sol-text">${mdToHtml(p.answer)}</div>
+    </div>`).join('');
+  const html = `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8">
+<title>Practice Problems — Atlas</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js"
+  onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}]})"></script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Times New Roman',Times,serif;font-size:12pt;color:#111;background:#fff;padding:48px 64px;max-width:820px;margin:0 auto}
+header{border-bottom:2px solid #111;padding-bottom:14px;margin-bottom:36px}
+header h1{font-size:18pt;font-family:monospace;letter-spacing:.16em;text-transform:uppercase}
+header p{font-size:9pt;font-family:monospace;color:#666;margin-top:5px}
+.section-label{font-size:8pt;font-family:monospace;letter-spacing:.14em;color:#999;text-transform:uppercase;margin-bottom:20px;padding-bottom:6px;border-bottom:1px solid #ddd}
+.problem{margin-bottom:40px;page-break-inside:avoid}
+.prob-row{display:flex;gap:14px;align-items:flex-start;margin-bottom:12px}
+.prob-num{font-family:monospace;font-size:9pt;color:#999;min-width:26px;padding-top:2px}
+.prob-q{font-size:12pt;line-height:1.7;flex:1}
+.work-space{margin-left:40px}
+.work-line{border-bottom:1px solid #e8e8e8;height:30px}
+.page-break{page-break-before:always;padding-top:48px;margin-bottom:36px}
+.solution{margin-bottom:28px;page-break-inside:avoid}
+.sol-label{font-family:monospace;font-size:8pt;color:#999;letter-spacing:.1em;margin-bottom:8px}
+.sol-text{font-size:11pt;line-height:1.7;padding-left:16px;border-left:3px solid #ccc;color:#222}
+@media print{body{padding:20px 36px}}
+</style></head><body>
+<header><h1>Practice Problems</h1><p>Atlas &nbsp;·&nbsp; ${date} &nbsp;·&nbsp; ${problems.length} Questions</p></header>
+<section><div class="section-label">Problems</div>${problemsHtml}</section>
+<div class="page-break"><div class="section-label">Solutions</div>${solutionsHtml}</div>
+<script>window.addEventListener('load',()=>setTimeout(()=>window.print(),900))</script>
+</body></html>`;
+  const blob = new Blob([html], { type: 'text/html' });
+  const url = URL.createObjectURL(blob);
+  window.open(url, '_blank');
+  setTimeout(() => URL.revokeObjectURL(url), 120_000);
 }
 
 function ProblemList({ problems }: { problems: ProblemItem[] }) {
@@ -210,38 +309,63 @@ function ProblemList({ problems }: { problems: ProblemItem[] }) {
   }
 
   return (
-    <div className="flex-1 overflow-y-auto px-1 py-2 flex flex-col gap-3 scrollbar-thin">
-      {problems.map((p, i) => {
-        const open = revealed.has(i);
-        return (
-          <div
-            key={i}
-            className="border border-white/15 bg-white/[0.02] p-4"
-          >
-            <div className="flex items-center gap-2 mb-2">
-              <span className="font-mono text-[9px] text-white/40 tracking-widest">
-                {String(i + 1).padStart(2, '0')}
-              </span>
-              <div className="flex-1 h-px bg-white/10" />
-              <button
+    <div className="flex-1 flex flex-col overflow-hidden">
+      {/* Doc header */}
+      <div className="flex-none flex items-center justify-between px-5 py-3 border-b border-white/15">
+        <div className="flex flex-col gap-0.5">
+          <span className="font-mono text-[10px] text-white/60 tracking-widest">PRACTICE PROBLEMS</span>
+          <span className="font-mono text-[8px] text-white/25">
+            {problems.length} QUESTIONS — CLICK A PROBLEM TO REVEAL SOLUTION
+          </span>
+        </div>
+        <button
+          onClick={() => downloadProblemsPdf(problems)}
+          className="flex items-center gap-1.5 px-3 py-1.5 border border-white/20 font-mono text-[9px] text-white/50 hover:border-white/60 hover:text-white transition-colors"
+        >
+          <span>↓</span>
+          <span>DOWNLOAD PDF</span>
+        </button>
+      </div>
+
+      {/* Problems */}
+      <div className="flex-1 overflow-y-auto scrollbar-thin">
+        {problems.map((p, i) => {
+          const open = revealed.has(i);
+          return (
+            <div key={i} className="border-b border-white/10 last:border-b-0">
+              {/* Clickable question row */}
+              <div
                 onClick={() => toggle(i)}
-                className="font-mono text-[9px] tracking-wider px-2 py-0.5 border border-white/20 text-white/50 hover:border-white/50 hover:text-white transition-colors"
+                className="flex gap-4 px-5 py-4 cursor-pointer hover:bg-white/[0.02] transition-colors"
               >
-                {open ? 'HIDE SOLUTION' : 'REVEAL SOLUTION'}
-              </button>
-            </div>
-            <div className="text-xs leading-relaxed text-white/85 mb-1">
-              <MessageContent text={p.question} />
-            </div>
-            {open && (
-              <div className="text-xs leading-relaxed text-white/65 border-t border-white/10 pt-3 mt-3">
-                <div className="font-mono text-[9px] text-white/30 tracking-widest mb-2">SOLUTION</div>
-                <MessageContent text={p.answer} />
+                <span className="font-mono text-[10px] text-white/30 pt-0.5 w-5 flex-none">
+                  {String(i + 1).padStart(2, '0')}
+                </span>
+                <div className="flex-1 flex flex-col gap-2 min-w-0">
+                  <div className="text-xs leading-relaxed text-white/85">
+                    <MessageContent text={p.question} />
+                  </div>
+                  <span className="font-mono text-[8px] text-white/25 tracking-wider select-none">
+                    {open ? '▲ HIDE SOLUTION' : '▼ REVEAL SOLUTION'}
+                  </span>
+                </div>
               </div>
-            )}
-          </div>
-        );
-      })}
+
+              {/* Solution — revealed inline */}
+              {open && (
+                <div className="px-5 pb-5" style={{ paddingLeft: '56px' }}>
+                  <div className="border-l-2 border-white/15 pl-4">
+                    <div className="font-mono text-[8px] text-white/30 tracking-widest mb-2">SOLUTION</div>
+                    <div className="text-xs leading-relaxed text-white/65">
+                      <MessageContent text={p.answer} />
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
@@ -261,6 +385,55 @@ export default function ConversationPage() {
   const [splitPct, setSplitPct] = useState(50);
   const splitContainerRef = useRef<HTMLDivElement>(null);
   const dragging = useRef(false);
+
+  // Typewriter effect: buffer incoming SSE chars, drain at a fixed rate
+  const typewriterQueueRef = useRef('');
+  const typewriterIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const typewriterFinalizeRef = useRef<{
+    messageId?: number;
+    svg: string | null;
+    refs: SourceRef[] | null;
+  } | null>(null);
+
+  const startTypewriter = useCallback(() => {
+    if (typewriterIntervalRef.current !== null) return;
+    typewriterIntervalRef.current = setInterval(() => {
+      if (typewriterQueueRef.current.length > 0) {
+        const charsPerTick = typewriterQueueRef.current.length > 60 ? 8 : 3;
+        const chunk = typewriterQueueRef.current.slice(0, charsPerTick);
+        typewriterQueueRef.current = typewriterQueueRef.current.slice(charsPerTick);
+        setMessages(prev => {
+          const next = [...prev];
+          const last = next[next.length - 1];
+          if (last?.role === 'assistant') {
+            next[next.length - 1] = { ...last, content: last.content + chunk };
+          }
+          return next;
+        });
+      } else if (typewriterFinalizeRef.current !== null) {
+        const fin = typewriterFinalizeRef.current;
+        typewriterFinalizeRef.current = null;
+        clearInterval(typewriterIntervalRef.current!);
+        typewriterIntervalRef.current = null;
+        setMessages(prev => {
+          const next = [...prev];
+          const last = next[next.length - 1];
+          if (last?.role === 'assistant') {
+            next[next.length - 1] = {
+              ...last,
+              id: fin.messageId,
+              svg: fin.svg,
+              source_refs: fin.refs,
+              streaming: false,
+            };
+          }
+          return next;
+        });
+        setSending(false);
+        inputRef.current?.focus();
+      }
+    }, 16);
+  }, []);
 
   const onDividerMouseDown = useCallback(() => {
     dragging.current = true;
@@ -346,66 +519,49 @@ export default function ConversationPage() {
     setError('');
     setSending(true);
 
-    // Optimistically add user message
     const userMsg: LiveMessage = { role: 'user', content: text };
     setMessages(prev => [...prev, userMsg]);
-
     setMessages(prev => [...prev, { role: 'assistant', content: '', streaming: true }]);
 
-    try {
-      let accText = '';
-      let accSvg: string | null = null;
-      let accRefs: SourceRef[] | null = null;
+    // Reset typewriter state
+    typewriterQueueRef.current = '';
+    typewriterFinalizeRef.current = null;
 
+    let accSvg: string | null = null;
+    let accRefs: SourceRef[] | null = null;
+
+    try {
       for await (const event of streamMessage(convId, text)) {
         if (event.type === 'text_delta') {
-          accText += event.delta;
-          setMessages(prev => {
-            const next = [...prev];
-            const last = next[next.length - 1];
-            if (last?.role === 'assistant') {
-              next[next.length - 1] = { ...last, content: accText, streaming: true };
-            }
-            return next;
-          });
+          typewriterQueueRef.current += event.delta;
+          startTypewriter();
         } else if (event.type === 'svg') {
           accSvg = event.svg;
-          setMessages(prev => {
-            const next = [...prev];
-            const last = next[next.length - 1];
-            if (last?.role === 'assistant') {
-              next[next.length - 1] = { ...last, svg: accSvg, streaming: true };
-            }
-            return next;
-          });
         } else if (event.type === 'sources') {
           accRefs = event.refs;
         } else if (event.type === 'done') {
-          setMessages(prev => {
-            const next = [...prev];
-            const last = next[next.length - 1];
-            if (last?.role === 'assistant') {
-              next[next.length - 1] = {
-                ...last,
-                id: event.message_id,
-                content: accText,
-                svg: accSvg,
-                source_refs: accRefs,
-                streaming: false,
-              };
-            }
-            return next;
-          });
+          // Signal the interval to finalize once the queue drains
+          typewriterFinalizeRef.current = {
+            messageId: event.message_id,
+            svg: accSvg,
+            refs: accRefs,
+          };
+          return; // setSending(false) handled by typewriter interval
         }
       }
     } catch (err) {
+      // Stop typewriter and clean up on error
+      if (typewriterIntervalRef.current !== null) {
+        clearInterval(typewriterIntervalRef.current);
+        typewriterIntervalRef.current = null;
+      }
+      typewriterFinalizeRef.current = null;
       setError(err instanceof Error ? err.message : 'Failed to send message');
-      setMessages(prev => prev.slice(0, -1)); // remove failed assistant placeholder
-    } finally {
+      setMessages(prev => prev.slice(0, -1));
       setSending(false);
       inputRef.current?.focus();
     }
-  }, [input, sending, convId, messages.length]);
+  }, [input, sending, convId, startTypewriter]);
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -625,7 +781,12 @@ export default function ConversationPage() {
             )}
 
             {messages.map((msg, i) => (
-              <MessageBubble key={msg.id ?? `live-${i}`} msg={msg} onClipClick={onClipClick} />
+              <MessageBubble
+                key={msg.id ?? `live-${i}`}
+                msg={msg}
+                onClipClick={onClipClick}
+                videoId={conv?.video_id}
+              />
             ))}
 
             {error && (

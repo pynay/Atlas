@@ -183,6 +183,23 @@ export async function getVideoProblems(videoId: number): Promise<ProblemsRespons
   return res.json();
 }
 
+export interface VideoDefineResponse {
+  context: string | null;
+  start?: number;
+  end?: number;
+}
+
+export async function getVideoDefinition(
+  videoId: number,
+  term: string,
+): Promise<VideoDefineResponse> {
+  const res = await fetch(
+    `${API_BASE}/videos/${videoId}/define?term=${encodeURIComponent(term)}`,
+  );
+  if (!res.ok) return { context: null };
+  return res.json();
+}
+
 export function toYouTubeEmbedUrl(sourceUrl: string): string | null {
   try {
     const url = new URL(sourceUrl);
