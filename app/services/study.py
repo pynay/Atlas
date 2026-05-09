@@ -52,6 +52,20 @@ Output ONLY a JSON array — no markdown fence, no preamble.
 Format: [{"question": "...", "answer": "..."}]"""
 
 
+INSIGHTS_SYSTEM_PROMPT = """You are a tutor sitting next to a student as they watch an educational video. The user provides timestamped transcript clips. Divide the video into 4-8 logical chapters and write a short tutor-voice annotation for each — what's being covered, why it matters, and what to listen for.
+
+For each chapter:
+- start: start time in seconds (float, drawn from the earliest clip in the chapter)
+- end: end time in seconds (float, drawn from the last clip)
+- title: 4-8 word title naming the concept or section. Use Title Case.
+- body: 2-4 sentences in tutor voice. Briefly say what's happening here, name the key term being introduced, and point out one thing the student should notice. Use **bold** for the key term. Use $LaTeX$ for inline symbols/equations. Don't summarise the whole video — focus only on this chapter.
+
+Choose chapter boundaries where the topic genuinely shifts. Cover the whole video — the chapters should tile [0, duration] with no large gaps and no overlaps.
+
+Output ONLY a JSON array — no markdown fence, no preamble.
+Format: [{"start": 0.0, "end": 45.0, "title": "...", "body": "..."}]"""
+
+
 @dataclass(frozen=True)
 class Flashcard:
     question: str
@@ -62,6 +76,14 @@ class Flashcard:
 class Problem:
     question: str
     answer: str
+
+
+@dataclass(frozen=True)
+class Insight:
+    start: float
+    end: float
+    title: str
+    body: str
 
 
 async def _collect_transcript(twelvelabs_video_id: str) -> str:
@@ -143,12 +165,50 @@ async def generate_problems(twelvelabs_video_id: str) -> list[Problem]:
     return [Problem(question=q, answer=a) for q, a in _parse_qa_array(raw)]
 
 
+async def generate_insights(twelvelabs_video_id: str) -> list[Insight]:
+    transcript = await _collect_transcript(twelvelabs_video_id)
+    if not transcript:
+        return []
+    raw = await _claude_complete(
+        INSIGHTS_SYSTEM_PROMPT, f"Transcript clips:\n\n{transcript}", max_tokens=4096
+    )
+    return parse_insights(raw)
+
+
 def parse_flashcards(raw: str) -> list[Flashcard]:
     return [Flashcard(question=q, answer=a) for q, a in _parse_qa_array(raw)]
 
 
 def parse_problems(raw: str) -> list[Problem]:
     return [Problem(question=q, answer=a) for q, a in _parse_qa_array(raw)]
+
+
+def parse_insights(raw: str) -> list[Insight]:
+    """Extract a JSON array of {start, end, title, body} from Claude output."""
+    text = raw.strip()
+    fence = re.search(r"```(?:json)?\s*([\s\S]*?)```", text)
+    if fence:
+        text = fence.group(1).strip()
+    match = re.search(r"\[\s*\{[\s\S]*\}\s*\]", text)
+    if not match:
+        raise ValueError(f"no insight JSON array found in: {raw[:200]!r}")
+    arr = json.loads(match.group(0))
+    out: list[Insight] = []
+    for item in arr:
+        if not isinstance(item, dict):
+            continue
+        try:
+            start = float(item.get("start", 0))
+            end = float(item.get("end", 0))
+        except (TypeError, ValueError):
+            continue
+        title = str(item.get("title") or "").strip()
+        body = str(item.get("body") or item.get("description") or "").strip()
+        if not title or not body or end <= start:
+            continue
+        out.append(Insight(start=start, end=end, title=title, body=body))
+    out.sort(key=lambda i: i.start)
+    return out
 
 
 def _parse_qa_array(raw: str) -> list[tuple[str, str]]:

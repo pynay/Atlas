@@ -7,6 +7,8 @@ interface Props {
   src: string;
   /** Optional: seek to this timestamp (seconds) on demand */
   seekTo?: number;
+  /** Optional: notified on every native timeupdate (~4Hz) with the current playback time in seconds */
+  onTimeUpdate?: (current: number) => void;
 }
 
 function fmt(t: number): string {
@@ -16,9 +18,11 @@ function fmt(t: number): string {
   return `${m}:${s.toString().padStart(2, '0')}`;
 }
 
-export default function AtlasPlayer({ src, seekTo }: Props) {
+export default function AtlasPlayer({ src, seekTo, onTimeUpdate }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const wrapperRef = useRef<HTMLDivElement>(null);
+  const onTimeUpdateRef = useRef(onTimeUpdate);
+  onTimeUpdateRef.current = onTimeUpdate;
   const [playing, setPlaying] = useState(false);
   const [muted, setMuted] = useState(false);
   const [current, setCurrent] = useState(0);
@@ -59,6 +63,7 @@ export default function AtlasPlayer({ src, seekTo }: Props) {
       if (v.buffered.length > 0) {
         setBuffered(v.buffered.end(v.buffered.length - 1));
       }
+      onTimeUpdateRef.current?.(v.currentTime);
     };
     const onMeta = () => setDuration(v.duration);
     const onPlay = () => setPlaying(true);

@@ -183,6 +183,27 @@ export async function getVideoProblems(videoId: number): Promise<ProblemsRespons
   return res.json();
 }
 
+export interface InsightItem {
+  start: number;
+  end: number;
+  title: string;
+  body: string;
+}
+
+export interface InsightsResponse {
+  video_id: number;
+  insights: InsightItem[];
+}
+
+export async function getVideoInsights(videoId: number): Promise<InsightsResponse> {
+  const res = await fetch(`${API_BASE}/videos/${videoId}/insights`, { method: 'POST' });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error((err as { detail?: string }).detail ?? `HTTP ${res.status}`);
+  }
+  return res.json();
+}
+
 export interface VideoDefineResponse {
   context: string | null;
   start?: number;

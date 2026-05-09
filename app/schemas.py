@@ -72,3 +72,15 @@ class ProblemItem(BaseModel):
 class ProblemsResponse(BaseModel):
     video_id: int
     problems: list[ProblemItem]
+
+
+class InsightItem(BaseModel):
+    start: float
+    end: float
+    title: str
+    body: str
+
+
+class InsightsResponse(BaseModel):
+    video_id: int
+    insights: list[InsightItem]

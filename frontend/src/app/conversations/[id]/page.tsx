@@ -5,11 +5,13 @@ import { useParams, useRouter } from 'next/navigation';
 import {
   getConversation,
   getVideoFlashcards,
+  getVideoInsights,
   getVideoNotes,
   getVideoProblems,
   streamMessage,
   type ConversationDetailResponse,
   type FlashcardItem,
+  type InsightItem,
   type MessageResponse,
   type ProblemItem,
   type SourceRef,
@@ -370,6 +372,95 @@ function ProblemList({ problems }: { problems: ProblemItem[] }) {
   );
 }
 
+function InsightTimeline({
+  insights,
+  currentTime,
+  onSeek,
+}: {
+  insights: InsightItem[];
+  currentTime: number;
+  onSeek: (s: number) => void;
+}) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const activeRef = useRef<HTMLDivElement>(null);
+
+  // Active = the chapter whose [start, end) contains currentTime,
+  // else the last chapter starting before currentTime, else none.
+  let activeIndex = -1;
+  for (let i = 0; i < insights.length; i++) {
+    if (currentTime >= insights[i].start && currentTime < insights[i].end) {
+      activeIndex = i;
+      break;
+    }
+  }
+  if (activeIndex === -1) {
+    for (let i = insights.length - 1; i >= 0; i--) {
+      if (currentTime >= insights[i].start) {
+        activeIndex = i;
+        break;
+      }
+    }
+  }
+
+  // Auto-scroll active chapter into view as playback advances
+  useEffect(() => {
+    if (activeIndex < 0 || !activeRef.current || !containerRef.current) return;
+    activeRef.current.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }, [activeIndex]);
+
+  if (insights.length === 0) {
+    return <p className="font-mono text-[10px] text-white/40">No insights produced.</p>;
+  }
+
+  return (
+    <div
+      ref={containerRef}
+      className="flex-1 overflow-y-auto px-1 py-2 flex flex-col gap-2 scrollbar-thin"
+    >
+      {insights.map((it, i) => {
+        const isActive = i === activeIndex;
+        return (
+          <div
+            key={i}
+            ref={isActive ? activeRef : null}
+            onClick={() => onSeek(it.start)}
+            className={`cursor-pointer p-3 transition-colors border ${
+              isActive
+                ? 'border-white bg-white/[0.06]'
+                : 'border-white/15 bg-white/[0.02] hover:border-white/40 hover:bg-white/[0.04]'
+            }`}
+          >
+            <div className="flex items-baseline gap-2 mb-1">
+              <span
+                className={`font-mono text-[9px] tracking-widest ${
+                  isActive ? 'text-white' : 'text-white/40'
+                }`}
+              >
+                {formatTime(it.start)}–{formatTime(it.end)}
+              </span>
+              {isActive && (
+                <span className="font-mono text-[9px] text-green-400/80 tracking-wider">
+                  ● PLAYING
+                </span>
+              )}
+            </div>
+            <div
+              className={`text-xs font-semibold mb-1 ${
+                isActive ? 'text-white' : 'text-white/80'
+              }`}
+            >
+              {it.title}
+            </div>
+            <div className={`text-xs leading-relaxed ${isActive ? 'text-white/85' : 'text-white/60'}`}>
+              <MessageContent text={it.body} />
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 export default function ConversationPage() {
   const router = useRouter();
   const params = useParams();
@@ -459,12 +550,16 @@ export default function ConversationPage() {
     window.addEventListener('mouseup', onUp);
   }, []);
 
-  const [studyView, setStudyView] = useState<'none' | 'notes' | 'cards' | 'problems'>('none');
+  const [studyView, setStudyView] = useState<
+    'none' | 'notes' | 'cards' | 'problems' | 'insights'
+  >('none');
   const [studyLoading, setStudyLoading] = useState(false);
   const [studyError, setStudyError] = useState('');
   const [notes, setNotes] = useState<string | null>(null);
   const [flashcards, setFlashcards] = useState<FlashcardItem[] | null>(null);
   const [problems, setProblems] = useState<ProblemItem[] | null>(null);
+  const [insights, setInsights] = useState<InsightItem[] | null>(null);
+  const [currentTime, setCurrentTime] = useState(0);
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -618,6 +713,22 @@ export default function ConversationPage() {
     }
   }, [conv, problems]);
 
+  const openInsights = useCallback(async () => {
+    if (!conv) return;
+    setStudyView('insights');
+    setStudyError('');
+    if (insights !== null) return;
+    setStudyLoading(true);
+    try {
+      const r = await getVideoInsights(conv.video_id);
+      setInsights(r.insights);
+    } catch (err) {
+      setStudyError(err instanceof Error ? err.message : 'Failed to generate insights');
+    } finally {
+      setStudyLoading(false);
+    }
+  }, [conv, insights]);
+
   const closeStudy = useCallback(() => setStudyView('none'), []);
 
 
@@ -652,7 +763,7 @@ export default function ConversationPage() {
             {hlsUrl ? (
               <div className="w-full h-full flex items-center justify-center">
                 <div className="w-full" style={{ aspectRatio: '16/9' }}>
-                  <AtlasPlayer src={hlsUrl} seekTo={seekTo} />
+                  <AtlasPlayer src={hlsUrl} seekTo={seekTo} onTimeUpdate={setCurrentTime} />
                 </div>
               </div>
             ) : (
@@ -712,6 +823,16 @@ export default function ConversationPage() {
             >
               PROBLEMS
             </button>
+            <button
+              onClick={openInsights}
+              className={`font-mono text-[9px] tracking-wider px-2 py-0.5 border transition-colors ${
+                studyView === 'insights'
+                  ? 'border-white/60 text-white'
+                  : 'border-white/20 text-white/40 hover:border-white/40 hover:text-white/70'
+              }`}
+            >
+              INSIGHTS
+            </button>
             <span className="font-mono text-[9px] text-white/20">{messages.length} MSG</span>
           </div>
 
@@ -724,7 +845,9 @@ export default function ConversationPage() {
                     ? 'STUDY.NOTES'
                     : studyView === 'cards'
                     ? 'FLASHCARDS'
-                    : 'PRACTICE.PROBLEMS'}
+                    : studyView === 'problems'
+                    ? 'PRACTICE.PROBLEMS'
+                    : 'INSIGHTS'}
                 </span>
                 <div className="flex-1 h-px bg-white/10" />
                 <button
@@ -759,6 +882,14 @@ export default function ConversationPage() {
 
               {studyView === 'problems' && problems && (
                 <ProblemList problems={problems} />
+              )}
+
+              {studyView === 'insights' && insights && (
+                <InsightTimeline
+                  insights={insights}
+                  currentTime={currentTime}
+                  onSeek={onClipClick}
+                />
               )}
             </div>
           )}

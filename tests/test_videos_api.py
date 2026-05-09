@@ -8,7 +8,7 @@ from sqlmodel import Session, SQLModel, create_engine
 from app.db import get_session
 from app.main import app
 from app.models import Video
-from app.services.study import Flashcard, Problem
+from app.services.study import Flashcard, Insight, Problem
 
 
 @pytest.fixture
@@ -186,4 +186,36 @@ def test_post_problems_409_when_not_ready(client_and_engine):
     client, engine = client_and_engine
     vid = _seed_indexing_video(engine)
     r = client.post(f"/videos/{vid}/problems")
+    assert r.status_code == 409
+
+
+def test_post_insights(client_and_engine):
+    client, engine = client_and_engine
+    vid = _seed_ready_video(engine)
+    fake = AsyncMock(
+        return_value=[
+            Insight(start=0.0, end=30.0, title="Intro", body="Setup."),
+            Insight(start=30.0, end=60.0, title="Core idea", body="Main concept here."),
+        ]
+    )
+    with patch("app.routes.videos.generate_insights", new=fake):
+        r = client.post(f"/videos/{vid}/insights")
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["video_id"] == vid
+    assert len(body["insights"]) == 2
+    assert body["insights"][0]["title"] == "Intro"
+    assert body["insights"][1]["start"] == 30.0
+
+
+def test_post_insights_404(client_and_engine):
+    client, _ = client_and_engine
+    r = client.post("/videos/9999/insights")
+    assert r.status_code == 404
+
+
+def test_post_insights_409_when_not_ready(client_and_engine):
+    client, engine = client_and_engine
+    vid = _seed_indexing_video(engine)
+    r = client.post(f"/videos/{vid}/insights")
     assert r.status_code == 409

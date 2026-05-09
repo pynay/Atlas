@@ -1,6 +1,13 @@
 import pytest
 
-from app.services.study import Flashcard, Problem, parse_flashcards, parse_problems
+from app.services.study import (
+    Flashcard,
+    Insight,
+    Problem,
+    parse_flashcards,
+    parse_insights,
+    parse_problems,
+)
 
 
 def test_parse_flashcards_clean_json():
@@ -65,3 +72,48 @@ def test_parse_problems_with_code_fence():
 def test_parse_problems_no_array_raises():
     with pytest.raises(ValueError):
         parse_problems("nothing here")
+
+
+def test_parse_insights_clean_json():
+    raw = (
+        '[{"start": 0.0, "end": 30.5, "title": "Setup", "body": "Intro to **alkanes**."},'
+        ' {"start": 30.5, "end": 60.0, "title": "Definition", "body": "Saturated hydrocarbons."}]'
+    )
+    insights = parse_insights(raw)
+    assert insights == [
+        Insight(start=0.0, end=30.5, title="Setup", body="Intro to **alkanes**."),
+        Insight(start=30.5, end=60.0, title="Definition", body="Saturated hydrocarbons."),
+    ]
+
+
+def test_parse_insights_with_code_fence():
+    raw = '```json\n[{"start": 0, "end": 10, "title": "T", "body": "B"}]\n```'
+    insights = parse_insights(raw)
+    assert len(insights) == 1
+    assert insights[0].title == "T"
+
+
+def test_parse_insights_skips_invalid_ranges():
+    # end <= start should be dropped; missing fields too
+    raw = (
+        '[{"start": 10, "end": 5, "title": "Bad", "body": "x"},'
+        ' {"start": 0, "end": 5, "title": "", "body": "missing title"},'
+        ' {"start": 0, "end": 5, "title": "OK", "body": "ok"}]'
+    )
+    insights = parse_insights(raw)
+    assert len(insights) == 1
+    assert insights[0].title == "OK"
+
+
+def test_parse_insights_sorts_by_start():
+    raw = (
+        '[{"start": 60, "end": 90, "title": "Z", "body": "z"},'
+        ' {"start": 0, "end": 30, "title": "A", "body": "a"}]'
+    )
+    insights = parse_insights(raw)
+    assert [i.title for i in insights] == ["A", "Z"]
+
+
+def test_parse_insights_no_array_raises():
+    with pytest.raises(ValueError):
+        parse_insights("not JSON")

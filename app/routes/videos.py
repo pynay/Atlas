@@ -8,12 +8,19 @@ from app.schemas import (
     CreateVideoRequest,
     FlashcardItem,
     FlashcardsResponse,
+    InsightItem,
+    InsightsResponse,
     NotesResponse,
     ProblemItem,
     ProblemsResponse,
     VideoResponse,
 )
-from app.services.study import generate_flashcards, generate_notes, generate_problems
+from app.services.study import (
+    generate_flashcards,
+    generate_insights,
+    generate_notes,
+    generate_problems,
+)
 from app.services.twelvelabs import TwelveLabsClient, TwelveLabsError
 from app.services.youtube import download_to_tmp
 
@@ -167,4 +174,20 @@ async def post_video_problems(
     return ProblemsResponse(
         video_id=video_id,
         problems=[ProblemItem(question=p.question, answer=p.answer) for p in problems],
+    )
+
+
+@router.post("/{video_id}/insights", response_model=InsightsResponse)
+async def post_video_insights(
+    video_id: int,
+    session: Session = Depends(get_session),
+) -> InsightsResponse:
+    v = _require_ready_video(video_id, session)
+    insights = await generate_insights(v.twelvelabs_video_id)
+    return InsightsResponse(
+        video_id=video_id,
+        insights=[
+            InsightItem(start=i.start, end=i.end, title=i.title, body=i.body)
+            for i in insights
+        ],
     )
