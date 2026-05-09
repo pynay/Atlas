@@ -18,6 +18,10 @@ class Video(SQLModel, table=True):
     twelvelabs_index_id: Optional[str] = None
     twelvelabs_task_id: Optional[str] = None
     hls_url: Optional[str] = None
+    notes_cache: Optional[str] = None
+    flashcards_cache: Optional[str] = None
+    problems_cache: Optional[str] = None
+    insights_cache: Optional[str] = None
     status: str = "pending"  # pending | indexing | ready | failed
     error: Optional[str] = None
     created_at: datetime = Field(default_factory=_utcnow)

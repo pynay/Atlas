@@ -56,6 +56,11 @@ export default function VideoLoadingPage() {
         setVideo(v);
 
         if (v.status === 'ready') {
+          // Pre-generate study content in the background while we redirect
+          const apiBase = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000';
+          for (const type of ['notes', 'flashcards', 'problems', 'insights']) {
+            fetch(`${apiBase}/videos/${v.id}/${type}`, { method: 'POST', keepalive: true }).catch(() => {});
+          }
           const conv = await createConversation(v.id);
           if (!cancelled) router.push(`/conversations/${conv.id}`);
           return;

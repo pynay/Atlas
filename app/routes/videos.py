@@ -1,3 +1,5 @@
+import json
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlmodel import Session
 
@@ -147,7 +149,12 @@ async def post_video_notes(
     session: Session = Depends(get_session),
 ) -> NotesResponse:
     v = _require_ready_video(video_id, session)
+    if v.notes_cache:
+        return NotesResponse(video_id=video_id, notes=v.notes_cache)
     notes = await generate_notes(v.twelvelabs_video_id)
+    v.notes_cache = notes
+    session.add(v)
+    session.commit()
     return NotesResponse(video_id=video_id, notes=notes)
 
 
@@ -157,7 +164,16 @@ async def post_video_flashcards(
     session: Session = Depends(get_session),
 ) -> FlashcardsResponse:
     v = _require_ready_video(video_id, session)
+    if v.flashcards_cache:
+        data = json.loads(v.flashcards_cache)
+        return FlashcardsResponse(
+            video_id=video_id,
+            cards=[FlashcardItem(question=c["question"], answer=c["answer"]) for c in data],
+        )
     cards = await generate_flashcards(v.twelvelabs_video_id)
+    v.flashcards_cache = json.dumps([{"question": c.question, "answer": c.answer} for c in cards])
+    session.add(v)
+    session.commit()
     return FlashcardsResponse(
         video_id=video_id,
         cards=[FlashcardItem(question=c.question, answer=c.answer) for c in cards],
@@ -170,7 +186,16 @@ async def post_video_problems(
     session: Session = Depends(get_session),
 ) -> ProblemsResponse:
     v = _require_ready_video(video_id, session)
+    if v.problems_cache:
+        data = json.loads(v.problems_cache)
+        return ProblemsResponse(
+            video_id=video_id,
+            problems=[ProblemItem(question=p["question"], answer=p["answer"]) for p in data],
+        )
     problems = await generate_problems(v.twelvelabs_video_id)
+    v.problems_cache = json.dumps([{"question": p.question, "answer": p.answer} for p in problems])
+    session.add(v)
+    session.commit()
     return ProblemsResponse(
         video_id=video_id,
         problems=[ProblemItem(question=p.question, answer=p.answer) for p in problems],
@@ -183,11 +208,17 @@ async def post_video_insights(
     session: Session = Depends(get_session),
 ) -> InsightsResponse:
     v = _require_ready_video(video_id, session)
+    if v.insights_cache:
+        data = json.loads(v.insights_cache)
+        return InsightsResponse(
+            video_id=video_id,
+            insights=[InsightItem(start=i["start"], end=i["end"], title=i["title"], body=i["body"]) for i in data],
+        )
     insights = await generate_insights(v.twelvelabs_video_id)
+    v.insights_cache = json.dumps([{"start": i.start, "end": i.end, "title": i.title, "body": i.body} for i in insights])
+    session.add(v)
+    session.commit()
     return InsightsResponse(
         video_id=video_id,
-        insights=[
-            InsightItem(start=i.start, end=i.end, title=i.title, body=i.body)
-            for i in insights
-        ],
+        insights=[InsightItem(start=i.start, end=i.end, title=i.title, body=i.body) for i in insights],
     )
