@@ -30,6 +30,7 @@ def _to_response(v: Video) -> VideoResponse:
         duration=v.duration,
         status=v.status,
         error=v.error,
+        hls_url=v.hls_url,
         created_at=v.created_at,
     )
 
@@ -64,11 +65,25 @@ async def create_video(
 
 
 @router.get("/{video_id}", response_model=VideoResponse)
-def get_video(
+async def get_video(
     video_id: int,
     session: Session = Depends(get_session),
 ) -> VideoResponse:
     v = session.get(Video, video_id)
     if v is None:
         raise HTTPException(status_code=404, detail="video not found")
+
+    # Backfill HLS URL for videos indexed before this field existed
+    if v.status == "ready" and v.twelvelabs_video_id and not v.hls_url:
+        settings = get_settings()
+        async with TwelveLabsClient(
+            api_key=settings.twelvelabs_api_key,
+            index_id=settings.twelvelabs_index_id,
+            base_url=settings.twelvelabs_base_url,
+        ) as c:
+            v.hls_url = await c.get_video_hls_url(v.twelvelabs_video_id)
+        session.add(v)
+        session.commit()
+        session.refresh(v)
+
     return _to_response(v)

@@ -45,9 +45,12 @@ async def _stream_tokens(
 def _format_clip_context(hits: list[SearchHit]) -> str:
     if not hits:
         return "(no relevant clips were retrieved)"
-    lines = ["Retrieved clips from the video:"]
+    lines = ["Retrieved clips from the video (with transcription):"]
     for h in hits:
-        lines.append(f"- [{h.start:.1f}s–{h.end:.1f}s, score={h.score:.2f}]")
+        line = f"- [{h.start:.1f}s–{h.end:.1f}s]"
+        if h.transcription:
+            line += f': "{h.transcription}"'
+        lines.append(line)
     return "\n".join(lines)
 
 
@@ -107,14 +110,13 @@ async def post_message(
             {
                 "start": h.start,
                 "end": h.end,
-                "score": h.score,
+                "rank": h.rank,
                 "thumbnail_url": h.thumbnail_url,
             }
             for h in hits
         ]
         yield {"event": "sources", "data": json.dumps({"refs": refs})}
 
-        # Persist assistant message
         full_text = "".join(text_chunks)
         asst = Message(
             conversation_id=conversation_id,

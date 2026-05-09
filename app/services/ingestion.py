@@ -1,6 +1,6 @@
 import asyncio
 import logging
-from typing import Protocol
+from typing import Optional, Protocol
 
 from sqlalchemy.engine import Engine
 from sqlmodel import Session, select
@@ -14,6 +14,7 @@ logger = logging.getLogger(__name__)
 
 class _StatusFetcher(Protocol):
     async def get_task_status(self, task_id: str) -> TaskStatus: ...
+    async def get_video_hls_url(self, video_id: str) -> Optional[str]: ...
 
 
 async def poll_once(engine: Engine, client: _StatusFetcher) -> None:
@@ -35,6 +36,11 @@ async def poll_once(engine: Engine, client: _StatusFetcher) -> None:
                 v.twelvelabs_video_id = st.video_id
                 v.duration = st.duration
                 v.title = st.title
+                if st.video_id:
+                    try:
+                        v.hls_url = await client.get_video_hls_url(st.video_id)
+                    except Exception as e:  # noqa: BLE001
+                        logger.warning("hls fetch failed for video %s: %s", v.id, e)
             elif st.status == "failed":
                 v.status = "failed"
                 v.error = st.error or "ingestion failed"

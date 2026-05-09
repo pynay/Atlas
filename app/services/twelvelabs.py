@@ -25,8 +25,9 @@ class SearchHit:
     video_id: str
     start: float
     end: float
-    score: float
+    rank: int
     thumbnail_url: Optional[str]
+    transcription: Optional[str]
 
 
 class TwelveLabsClient:
@@ -59,10 +60,22 @@ class TwelveLabsClient:
         with open(file_path, "rb") as fh:
             files = {"video_file": (file_path, fh, "video/mp4")}
             data = {"index_id": self._index_id}
-            r = await self._client.post("/tasks", data=data, files=files)
+            r = await self._client.post(
+                "/tasks",
+                data=data,
+                files=files,
+                timeout=600.0,
+            )
         if r.status_code >= 400:
             raise TwelveLabsError(f"upload task failed: {r.status_code} {r.text}")
         return r.json()["_id"]
+
+    async def get_video_hls_url(self, video_id: str) -> Optional[str]:
+        r = await self._client.get(f"/indexes/{self._index_id}/videos/{video_id}")
+        if r.status_code >= 400:
+            return None
+        body = r.json()
+        return (body.get("hls") or {}).get("video_url")
 
     async def get_task_status(self, task_id: str) -> TaskStatus:
         r = await self._client.get(f"/tasks/{task_id}")
@@ -84,33 +97,33 @@ class TwelveLabsClient:
         video_id: str,
         query: str,
         top_k: int = 8,
-        min_score: float = 0.5,
     ) -> list[SearchHit]:
         r = await self._client.post(
             "/search",
-            json={
-                "index_id": self._index_id,
-                "video_ids": [video_id],
-                "query_text": query,
-                "search_options": ["visual", "audio"],
-                "page_limit": top_k,
-            },
+            files=[
+                ("index_id", (None, self._index_id)),
+                ("query_text", (None, query)),
+                ("search_options", (None, "visual")),
+                ("search_options", (None, "audio")),
+                ("search_options", (None, "transcription")),
+                ("page_limit", (None, str(top_k))),
+            ],
         )
         if r.status_code >= 400:
             raise TwelveLabsError(f"search failed: {r.status_code} {r.text}")
         body = r.json()
         hits: list[SearchHit] = []
         for d in body.get("data", []):
-            score = float(d.get("score", 0.0))
-            if score < min_score:
+            if d.get("video_id") != video_id:
                 continue
             hits.append(
                 SearchHit(
                     video_id=d["video_id"],
                     start=float(d["start"]),
                     end=float(d["end"]),
-                    score=score,
+                    rank=int(d.get("rank", 99)),
                     thumbnail_url=d.get("thumbnail_url"),
+                    transcription=d.get("transcription"),
                 )
             )
         return hits

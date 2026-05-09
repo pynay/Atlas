@@ -15,6 +15,7 @@ class VideoResponse(BaseModel):
     duration: Optional[float]
     status: str
     error: Optional[str]
+    hls_url: Optional[str] = None
     created_at: datetime
 
 
