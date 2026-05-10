@@ -15,7 +15,13 @@ class YouTubeDownloadError(RuntimeError):
 def _download_blocking(url: str, out_dir: str) -> str:
     opts: dict = {
         "outtmpl": str(Path(out_dir) / "%(id)s.%(ext)s"),
-        "format": "mp4/bestvideo[ext=mp4]+bestaudio[ext=m4a]/best",
+        # Prefer mp4 single-stream when a video offers it; fall back to
+        # bestvideo+bestaudio merge (requires ffmpeg) for DASH-only videos.
+        # The trailing `/best` keeps very old uploads working.
+        "format": "best[ext=mp4]/bv*[ext=mp4]+ba[ext=m4a]/bv*+ba/best",
+        # Re-mux any merge output to mp4 so the TwelveLabs upload's
+        # `Content-Type: video/mp4` stays accurate.
+        "merge_output_format": "mp4",
         "quiet": True,
         "no_warnings": True,
         "noprogress": True,
