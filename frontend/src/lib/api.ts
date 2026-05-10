@@ -78,6 +78,23 @@ export async function getConversation(id: number): Promise<ConversationDetailRes
   return res.json();
 }
 
+export interface ConversationSummaryItem {
+  id: number;
+  video_id: number;
+  video_title: string | null;
+  source_url: string;
+  created_at: string;
+  message_count: number;
+  last_message_at: string | null;
+  preview: string | null;
+}
+
+export async function getConversationList(): Promise<ConversationSummaryItem[]> {
+  const res = await fetch(`${API_BASE}/conversations`);
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}
+
 export type SSEEvent =
   | { type: 'text_delta'; delta: string }
   | { type: 'svg'; svg: string }

@@ -85,3 +85,89 @@ def test_get_conversation_404(client_and_engine):
     client, _ = client_and_engine
     r = client.get("/conversations/9999")
     assert r.status_code == 404
+
+
+def test_list_conversations_empty(client_and_engine):
+    client, _ = client_and_engine
+    r = client.get("/conversations")
+    assert r.status_code == 200
+    assert r.json() == []
+
+
+def test_list_conversations_returns_metadata(client_and_engine):
+    client, engine = client_and_engine
+    with Session(engine) as s:
+        v = Video(source_url="https://yt/abc", status="ready", title="Alkanes 101")
+        s.add(v); s.commit(); s.refresh(v)
+        c = Conversation(video_id=v.id)
+        s.add(c); s.commit(); s.refresh(c)
+        s.add(Message(conversation_id=c.id, role="user", content="What's an alkane?"))
+        s.add(Message(conversation_id=c.id, role="assistant", content="A saturated hydrocarbon."))
+        s.commit()
+        cid = c.id
+
+    r = client.get("/conversations")
+    assert r.status_code == 200
+    body = r.json()
+    assert len(body) == 1
+    item = body[0]
+    assert item["id"] == cid
+    assert item["video_title"] == "Alkanes 101"
+    assert item["source_url"] == "https://yt/abc"
+    assert item["message_count"] == 2
+    assert item["preview"] == "What's an alkane?"
+
+
+def test_list_conversations_truncates_long_preview(client_and_engine):
+    client, engine = client_and_engine
+    long_msg = "Q. " + "x" * 200
+    with Session(engine) as s:
+        v = Video(source_url="u", status="ready")
+        s.add(v); s.commit(); s.refresh(v)
+        c = Conversation(video_id=v.id)
+        s.add(c); s.commit(); s.refresh(c)
+        s.add(Message(conversation_id=c.id, role="user", content=long_msg))
+        s.commit()
+
+    r = client.get("/conversations")
+    assert r.status_code == 200
+    preview = r.json()[0]["preview"]
+    assert preview is not None
+    assert preview.endswith("…")
+    assert len(preview) <= 101  # 100 chars + ellipsis
+
+
+def test_list_conversations_orders_newest_first(client_and_engine):
+    client, engine = client_and_engine
+    from datetime import datetime, timezone, timedelta
+    with Session(engine) as s:
+        v = Video(source_url="u", status="ready")
+        s.add(v); s.commit(); s.refresh(v)
+        older = Conversation(
+            video_id=v.id,
+            created_at=datetime.now(timezone.utc) - timedelta(hours=1),
+        )
+        newer = Conversation(video_id=v.id)
+        s.add_all([older, newer])
+        s.commit()
+        s.refresh(older); s.refresh(newer)
+
+    r = client.get("/conversations")
+    assert r.status_code == 200
+    ids = [item["id"] for item in r.json()]
+    assert ids == [newer.id, older.id]
+
+
+def test_list_conversations_no_user_message_yields_null_preview(client_and_engine):
+    client, engine = client_and_engine
+    with Session(engine) as s:
+        v = Video(source_url="u", status="ready")
+        s.add(v); s.commit(); s.refresh(v)
+        c = Conversation(video_id=v.id)
+        s.add(c); s.commit()
+    r = client.get("/conversations")
+    assert r.status_code == 200
+    item = r.json()[0]
+    assert item["message_count"] == 0
+    assert item["preview"] is None
+    assert item["last_message_at"] is None

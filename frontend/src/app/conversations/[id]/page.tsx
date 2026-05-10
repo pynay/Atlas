@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, useCallback } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import {
   getConversation,
+  getConversationList,
   getVideo,
   getVideoFlashcards,
   getVideoInsights,
@@ -11,6 +12,7 @@ import {
   getVideoProblems,
   streamMessage,
   type ConversationDetailResponse,
+  type ConversationSummaryItem,
   type FlashcardItem,
   type InsightItem,
   type MessageResponse,
@@ -463,6 +465,80 @@ function InsightTimeline({
   );
 }
 
+function HistoryList({
+  items,
+  currentId,
+}: {
+  items: ConversationSummaryItem[];
+  currentId: number;
+}) {
+  const router = useRouter();
+
+  function relativeTime(iso: string): string {
+    const then = new Date(iso).getTime();
+    const now = Date.now();
+    const sec = Math.max(0, Math.floor((now - then) / 1000));
+    if (sec < 60) return `${sec}s ago`;
+    const min = Math.floor(sec / 60);
+    if (min < 60) return `${min}m ago`;
+    const hr = Math.floor(min / 60);
+    if (hr < 24) return `${hr}h ago`;
+    const d = Math.floor(hr / 24);
+    if (d < 30) return `${d}d ago`;
+    return new Date(iso).toLocaleDateString();
+  }
+
+  if (items.length === 0) {
+    return (
+      <p className="font-mono text-[10px] text-white/40 px-3 py-4">No conversations yet.</p>
+    );
+  }
+
+  return (
+    <div className="flex-1 overflow-y-auto px-1 py-2 flex flex-col gap-2 scrollbar-thin">
+      {items.map(item => {
+        const isCurrent = item.id === currentId;
+        return (
+          <button
+            key={item.id}
+            disabled={isCurrent}
+            onClick={() => router.push(`/conversations/${item.id}`)}
+            className={`text-left p-3 transition-colors border ${
+              isCurrent
+                ? 'border-white bg-white/[0.06] cursor-default'
+                : 'border-white/15 bg-white/[0.02] hover:border-white/40 hover:bg-white/[0.04] cursor-pointer'
+            }`}
+          >
+            <div className="flex items-center gap-2 mb-1">
+              <span className="font-mono text-[9px] text-white/40 tracking-widest">
+                CONV.{String(item.id).padStart(3, '0')}
+              </span>
+              {isCurrent && (
+                <span className="font-mono text-[9px] text-green-400/80 tracking-wider">
+                  ● CURRENT
+                </span>
+              )}
+              <div className="flex-1 h-px bg-white/10" />
+              <span className="font-mono text-[9px] text-white/30">
+                {relativeTime(item.last_message_at ?? item.created_at)}
+              </span>
+            </div>
+            <div className="text-xs text-white/85 truncate mb-1">
+              {item.video_title ?? item.source_url}
+            </div>
+            <div className="text-xs text-white/55 line-clamp-2 mb-1">
+              {item.preview ?? <span className="italic text-white/30">No messages yet.</span>}
+            </div>
+            <div className="font-mono text-[9px] text-white/30">
+              {item.message_count} {item.message_count === 1 ? 'message' : 'messages'}
+            </div>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 export default function ConversationPage() {
   const router = useRouter();
   const params = useParams();
@@ -553,7 +629,7 @@ export default function ConversationPage() {
   }, []);
 
   const [studyView, setStudyView] = useState<
-    'none' | 'notes' | 'cards' | 'problems' | 'insights'
+    'none' | 'notes' | 'cards' | 'problems' | 'insights' | 'history'
   >('none');
   const [studyLoading, setStudyLoading] = useState(false);
   const [studyError, setStudyError] = useState('');
@@ -561,6 +637,7 @@ export default function ConversationPage() {
   const [flashcards, setFlashcards] = useState<FlashcardItem[] | null>(null);
   const [problems, setProblems] = useState<ProblemItem[] | null>(null);
   const [insights, setInsights] = useState<InsightItem[] | null>(null);
+  const [history, setHistory] = useState<ConversationSummaryItem[] | null>(null);
   const [currentTime, setCurrentTime] = useState(0);
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -748,6 +825,21 @@ export default function ConversationPage() {
     }
   }, [conv, insights]);
 
+  const openHistory = useCallback(async () => {
+    setStudyView('history');
+    setStudyError('');
+    // Always refetch — the user may have just sent a message that should now show up
+    setStudyLoading(true);
+    try {
+      const list = await getConversationList();
+      setHistory(list);
+    } catch (err) {
+      setStudyError(err instanceof Error ? err.message : 'Failed to load history');
+    } finally {
+      setStudyLoading(false);
+    }
+  }, []);
+
   const closeStudy = useCallback(() => setStudyView('none'), []);
 
   // Gate the dashboard: don't render the player + chat + study features
@@ -913,6 +1005,16 @@ export default function ConversationPage() {
             >
               INSIGHTS
             </button>
+            <button
+              onClick={openHistory}
+              className={`font-mono text-[9px] tracking-wider px-2 py-0.5 border transition-colors ${
+                studyView === 'history'
+                  ? 'border-white/60 text-white'
+                  : 'border-white/20 text-white/40 hover:border-white/40 hover:text-white/70'
+              }`}
+            >
+              HISTORY
+            </button>
             <span className="font-mono text-[9px] text-white/20">{messages.length} MSG</span>
           </div>
 
@@ -927,7 +1029,9 @@ export default function ConversationPage() {
                     ? 'FLASHCARDS'
                     : studyView === 'problems'
                     ? 'PRACTICE.PROBLEMS'
-                    : 'INSIGHTS'}
+                    : studyView === 'insights'
+                    ? 'INSIGHTS'
+                    : 'CONVERSATION.HISTORY'}
                 </span>
                 <div className="flex-1 h-px bg-white/10" />
                 <button
@@ -970,6 +1074,10 @@ export default function ConversationPage() {
                   currentTime={currentTime}
                   onSeek={onClipClick}
                 />
+              )}
+
+              {studyView === 'history' && history && (
+                <HistoryList items={history} currentId={convId} />
               )}
             </div>
           )}

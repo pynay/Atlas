@@ -6,11 +6,24 @@ from app.models import Conversation, Message, Video
 from app.schemas import (
     ConversationDetailResponse,
     ConversationResponse,
+    ConversationSummaryItem,
     CreateConversationRequest,
     MessageResponse,
 )
 
 router = APIRouter(prefix="/conversations", tags=["conversations"])
+
+
+_PREVIEW_MAX = 100
+
+
+def _preview(text: str | None) -> str | None:
+    if not text:
+        return None
+    text = text.strip()
+    if len(text) <= _PREVIEW_MAX:
+        return text
+    return text[:_PREVIEW_MAX].rstrip() + "…"
 
 
 @router.post(
@@ -27,6 +40,37 @@ def create_conversation(
     session.commit()
     session.refresh(c)
     return ConversationResponse(id=c.id, video_id=c.video_id, created_at=c.created_at)
+
+
+@router.get("", response_model=list[ConversationSummaryItem])
+def list_conversations(
+    session: Session = Depends(get_session),
+) -> list[ConversationSummaryItem]:
+    convs = session.exec(
+        select(Conversation).order_by(Conversation.created_at.desc())
+    ).all()
+    out: list[ConversationSummaryItem] = []
+    for c in convs:
+        v = session.get(Video, c.video_id)
+        msgs = session.exec(
+            select(Message)
+            .where(Message.conversation_id == c.id)
+            .order_by(Message.id)
+        ).all()
+        first_user_msg = next((m for m in msgs if m.role == "user"), None)
+        out.append(
+            ConversationSummaryItem(
+                id=c.id,
+                video_id=c.video_id,
+                video_title=(v.title if v else None),
+                source_url=(v.source_url if v else ""),
+                created_at=c.created_at,
+                message_count=len(msgs),
+                last_message_at=(msgs[-1].created_at if msgs else None),
+                preview=_preview(first_user_msg.content if first_user_msg else None),
+            )
+        )
+    return out
 
 
 @router.get("/{conversation_id}", response_model=ConversationDetailResponse)

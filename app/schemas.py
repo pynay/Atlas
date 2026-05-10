@@ -45,6 +45,17 @@ class ConversationDetailResponse(BaseModel):
     messages: list[MessageResponse]
 
 
+class ConversationSummaryItem(BaseModel):
+    id: int
+    video_id: int
+    video_title: Optional[str]
+    source_url: str
+    created_at: datetime
+    message_count: int
+    last_message_at: Optional[datetime]
+    preview: Optional[str]
+
+
 class CreateMessageRequest(BaseModel):
     content: str
 
