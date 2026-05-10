@@ -42,7 +42,7 @@ export default function LandingPage() {
       <div className="absolute inset-0 w-full h-full stars-bg" />
 
       {/* Black bar to cover UnicornStudio watermark */}
-      <div className="absolute bottom-0 left-0 right-0 h-20 bg-black z-50" />
+      <div className="absolute bottom-0 left-0 right-0 h-32 bg-black z-50" />
 
       {/* Top header */}
       <div className="absolute top-0 left-0 right-0 z-20 border-b border-white/20">
@@ -157,6 +157,14 @@ export default function LandingPage() {
               <div className="flex-1 h-px bg-white" />
               <span className="text-white text-[9px] font-mono">ATLAS.PROTOCOL</span>
             </div>
+
+            <p className="font-mono text-[8px] text-white leading-relaxed mt-3 max-w-sm">
+              Video content is indexed by{' '}
+              <a href="https://twelvelabs.io/legal/privacy-policy" target="_blank" rel="noopener noreferrer" className="underline hover:text-white/60 transition-colors">TwelveLabs</a>.
+              {' '}Your questions are processed by{' '}
+              <a href="https://www.anthropic.com/legal/privacy" target="_blank" rel="noopener noreferrer" className="underline hover:text-white/60 transition-colors">Anthropic (Claude)</a>.
+              {' '}No personal data is collected by Atlas.
+            </p>
           </div>
         </div>
       </div>

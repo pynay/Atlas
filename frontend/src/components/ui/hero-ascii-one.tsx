@@ -85,7 +85,7 @@ export default function AnimationPage() {
     >
       <div
         data-us-project="OMzqyUv6M3kSnv0JeAtC"
-        style={{ width: '100%', height: '100%', minHeight: '100vh' }}
+        style={{ width: '100%', height: '100%', minHeight: '100vh', transform: 'scale(1.02) translateX(2%) translateY(-5%)', transformOrigin: 'center center' }}
         suppressHydrationWarning
       />
     </div>
