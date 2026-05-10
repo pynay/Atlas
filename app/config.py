@@ -10,6 +10,10 @@ class Settings(BaseSettings):
     twelvelabs_base_url: str = "https://api.twelvelabs.io/v1.3"
     claude_model: str = "claude-sonnet-4-6"
     poll_interval_seconds: int = 10
+    # Optional: pull cookies from a logged-in browser to bypass YouTube's
+    # anti-bot wall. One of "chrome", "safari", "firefox", "edge", "brave",
+    # "chromium". Empty disables cookie use.
+    youtube_cookies_browser: str = ""
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 

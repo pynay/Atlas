@@ -5,13 +5,15 @@ from pathlib import Path
 
 import yt_dlp
 
+from app.config import get_settings
+
 
 class YouTubeDownloadError(RuntimeError):
     pass
 
 
 def _download_blocking(url: str, out_dir: str) -> str:
-    opts = {
+    opts: dict = {
         "outtmpl": str(Path(out_dir) / "%(id)s.%(ext)s"),
         "format": "mp4/bestvideo[ext=mp4]+bestaudio[ext=m4a]/best",
         "quiet": True,
@@ -20,6 +22,11 @@ def _download_blocking(url: str, out_dir: str) -> str:
         # Treat URLs like `?v=X&list=Y` as the single video X, not the playlist.
         "noplaylist": True,
     }
+    cookies_browser = get_settings().youtube_cookies_browser.strip().lower()
+    if cookies_browser:
+        # yt-dlp expects a tuple: (browser, profile|None, keyring|None, container|None).
+        # Pass just the browser name; yt-dlp picks the default profile.
+        opts["cookiesfrombrowser"] = (cookies_browser,)
     with yt_dlp.YoutubeDL(opts) as ydl:
         info = ydl.extract_info(url, download=True)
         # Some playlist-only URLs (no `v=` param) come back as a playlist info
