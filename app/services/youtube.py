@@ -1,8 +1,13 @@
 import asyncio
+import os
 import tempfile
 from pathlib import Path
 
 import yt_dlp
+
+
+class YouTubeDownloadError(RuntimeError):
+    pass
 
 
 def _download_blocking(url: str, out_dir: str) -> str:
@@ -12,10 +17,24 @@ def _download_blocking(url: str, out_dir: str) -> str:
         "quiet": True,
         "no_warnings": True,
         "noprogress": True,
+        # Treat URLs like `?v=X&list=Y` as the single video X, not the playlist.
+        "noplaylist": True,
     }
     with yt_dlp.YoutubeDL(opts) as ydl:
         info = ydl.extract_info(url, download=True)
+        # Some playlist-only URLs (no `v=` param) come back as a playlist info
+        # dict with no downloadable entry and prepare_filename produces a `.NA`
+        # path that doesn't exist on disk. Surface a clear error instead.
+        if info is None or info.get("_type") == "playlist":
+            raise YouTubeDownloadError(
+                "URL points at a playlist, not a single video. "
+                "Paste a link that includes the `?v=...` video id."
+            )
         path = ydl.prepare_filename(info)
+    if not os.path.isfile(path):
+        raise YouTubeDownloadError(
+            f"yt-dlp produced no file at {path!r} (is this a playable single video?)"
+        )
     return path
 
 
